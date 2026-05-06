@@ -70,15 +70,19 @@ const response = await axios.post(
 
       res.send(response.data);
     } catch (error) {
-      console.log(error.response?.data || error.message);
+      console.log('ERROR SEGMIND:');
 
-      res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
-  }
-);
+if (error.response) {
+  console.log(error.response.status);
+  console.log(error.response.data.toString());
+} else {
+  console.log(error.message);
+}
+
+res.status(500).json({
+  success: false,
+  error: error.response?.data?.toString() || error.message,
+});
 
 const PORT = process.env.PORT || 3000;
 
