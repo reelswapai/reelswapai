@@ -78,13 +78,19 @@ export default function HomeScreen() {
       setTargetType(isVideo ? 'video' : 'image');
       setResultReady(false);
 
-      Alert.alert('Archivo añadido', isVideo ? 'Vídeo seleccionado ✅' : 'Imagen seleccionada ✅');
+      Alert.alert(
+        'Archivo añadido',
+        isVideo ? 'Vídeo seleccionado ✅' : 'Imagen seleccionada ✅'
+      );
     }
   }
 
-  function generateSwap() {
+  async function generateSwap() {
     if (!faceImage || !targetFile) {
-      Alert.alert('Faltan archivos', 'Sube primero una cara y una foto o vídeo destino.');
+      Alert.alert(
+        'Faltan archivos',
+        'Sube primero una cara y una foto o vídeo destino.'
+      );
       return;
     }
 
@@ -93,56 +99,85 @@ export default function HomeScreen() {
       return;
     }
 
-    setTokens(tokens - 3);
-    setGenerating(true);
-    setResultReady(false);
-    setProgress(0);
+    try {
+      setGenerating(true);
+      setResultReady(false);
+      setProgress(10);
+      setStep('Subiendo archivos...');
 
-    const steps = [
-      'Analizando rostro...',
-      'Detectando movimiento...',
-      'Aplicando face swap...',
-      'Renderizando resultado...',
-    ];
+      const formData = new FormData();
 
-    let index = 0;
-    setStep(steps[index]);
+      formData.append('face', {
+        uri: faceImage,
+        name: 'face.jpg',
+        type: 'image/jpeg',
+      } as any);
 
-    const interval = setInterval(() => {
-  index += 1;
+      formData.append('target', {
+        uri: targetFile,
+        name: targetType === 'video' ? 'video.mp4' : 'image.jpg',
+        type: targetType === 'video' ? 'video/mp4' : 'image/jpeg',
+      } as any);
 
-  if (index < steps.length) {
-    setStep(steps[index]);
-    setProgress((index / steps.length) * 100);
-  } else {
-    clearInterval(interval);
-    setProgress(100);
-    setGenerating(false);
-    setResultReady(true);
-setHistory((prev) => [
-  `Resultado ${prev.length + 1} · ${targetType === 'video' ? 'Vídeo' : 'Imagen'}`,
-  ...prev,
-]);
-setStep('');
+      formData.append('type', targetType || 'image');
+
+      setProgress(35);
+      setStep('Conectando con IA...');
+
+      const response = await fetch(
+        'https://reelswapai-production.up.railway.app/faceswap',
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
+
+      setProgress(75);
+      setStep('Procesando resultado...');
+
+      const data = await response.json();
+
+      console.log(data);
+
+      setProgress(100);
+      setGenerating(false);
+      setResultReady(true);
+      setTokens(tokens - 3);
+
+      setHistory((prev) => [
+        `Resultado ${prev.length + 1} · ${
+          targetType === 'video' ? 'Vídeo' : 'Imagen'
+        }`,
+        ...prev,
+      ]);
+
+      Alert.alert('Face swap completado 🔥', 'La IA ha generado el resultado.');
+    } catch (error) {
+      console.log(error);
+      setGenerating(false);
+
+      Alert.alert('Error', 'Algo falló conectando con la IA.');
+    }
   }
-}, 1800);
+
+  async function shareResult() {
+    if (!targetFile) {
+      Alert.alert('Sin resultado', 'Primero genera un resultado.');
+      return;
+    }
+
+    const canShare = await Sharing.isAvailableAsync();
+
+    if (!canShare) {
+      Alert.alert(
+        'No disponible',
+        'Compartir no está disponible en este dispositivo.'
+      );
+      return;
+    }
+
+    await Sharing.shareAsync(targetFile);
   }
-
-async function shareResult() {
-  if (!targetFile) {
-    Alert.alert('Sin resultado', 'Primero genera un resultado.');
-    return;
-  }
-
-  const canShare = await Sharing.isAvailableAsync();
-
-  if (!canShare) {
-    Alert.alert('No disponible', 'Compartir no está disponible en este dispositivo.');
-    return;
-  }
-
-  await Sharing.shareAsync(targetFile);
-}
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -168,7 +203,9 @@ async function shareResult() {
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>1. Sube tu rostro</Text>
-        <Text style={styles.cardText}>Elige la cara que quieres usar para el face swap.</Text>
+        <Text style={styles.cardText}>
+          Elige la cara que quieres usar para el face swap.
+        </Text>
 
         {faceImage && <Image source={{ uri: faceImage }} style={styles.preview} />}
 
@@ -188,16 +225,16 @@ async function shareResult() {
         )}
 
         {targetFile && targetType === 'video' && (
-  <View style={styles.videoBox}>
-    <VideoView
-      player={player}
-      style={styles.video}
-      allowsFullscreen
-      nativeControls
-      contentFit="contain"
-    />
-  </View>
-)}
+          <View style={styles.videoBox}>
+            <VideoView
+              player={player}
+              style={styles.video}
+              allowsFullscreen
+              nativeControls
+              contentFit="contain"
+            />
+          </View>
+        )}
 
         <TouchableOpacity style={styles.secondaryButton} onPress={pickTarget}>
           <Text style={styles.secondaryButtonText}>
@@ -213,7 +250,9 @@ async function shareResult() {
         </Text>
 
         <TouchableOpacity style={styles.generateButton} onPress={generateSwap}>
-          <Text style={styles.generateButtonText}>Generar Face Swap · 3 tokens</Text>
+          <Text style={styles.generateButtonText}>
+            Generar Face Swap · 3 tokens
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -221,16 +260,18 @@ async function shareResult() {
         <View style={styles.loaderCard}>
           <Text style={styles.loaderIcon}>✨</Text>
           <Text style={styles.resultTitle}>{step}</Text>
+
           <Text style={styles.progressText}>
-  {Math.round(progress)}% completado
-</Text>
+            {Math.round(progress)}% completado
+          </Text>
+
           <View style={styles.progressBar}>
             <View
-  style={[
-    styles.progressFill,
-    { width: `${progress}%` }
-  ]}
-/>
+              style={[
+                styles.progressFill,
+                { width: `${progress}%` },
+              ]}
+            />
           </View>
 
           <Text style={styles.cardText}>
@@ -244,96 +285,101 @@ async function shareResult() {
           <Text style={styles.resultTitle}>Resultado listo 🎉</Text>
 
           <Text style={styles.cardText}>
-            Demo completada. El siguiente paso será conectar la API real de face swap.
+            Demo completada. El siguiente paso será conectar el resultado real de
+            la API.
           </Text>
 
-<TouchableOpacity
-  style={styles.resultPreviewCard}
-  onPress={() => setShowResult(true)}
->
-  <Text style={styles.resultPlayIcon}>▶</Text>
+          <TouchableOpacity
+            style={styles.resultPreviewCard}
+            onPress={() => setShowResult(true)}
+          >
+            <Text style={styles.resultPlayIcon}>▶</Text>
 
-  <Text style={styles.resultPreviewTitle}>
-    Resultado generado
-  </Text>
+            <Text style={styles.resultPreviewTitle}>Resultado generado</Text>
 
-  <Text style={styles.resultPreviewSubtitle}>
-    Toca para ver el vídeo
-  </Text>
-</TouchableOpacity>
-<View style={styles.resultActions}>
-  <TouchableOpacity style={styles.resultActionButton} onPress={shareResult}>
-    <Text style={styles.resultActionText}>Compartir</Text>
-  </TouchableOpacity>
+            <Text style={styles.resultPreviewSubtitle}>
+              Toca para ver el vídeo
+            </Text>
+          </TouchableOpacity>
 
-  <TouchableOpacity
-    style={styles.resultActionButton}
-    onPress={() => {
-      setResultReady(false);
-      setFaceImage(null);
-      setTargetFile(null);
-      setTargetType(null);
-    }}
-  >
-    <Text style={styles.resultActionText}>Generar otro</Text>
-  </TouchableOpacity>
+          <View style={styles.resultActions}>
+            <TouchableOpacity
+              style={styles.resultActionButton}
+              onPress={shareResult}
+            >
+              <Text style={styles.resultActionText}>Compartir</Text>
+            </TouchableOpacity>
 
-  <TouchableOpacity
-    style={styles.resultActionButtonPremium}
-    onPress={() => setTokens(tokens + 50)}
-  >
-    <Text style={styles.resultActionTextPremium}>+50 tokens</Text>
-  </TouchableOpacity>
-</View>
+            <TouchableOpacity
+              style={styles.resultActionButton}
+              onPress={() => {
+                setResultReady(false);
+                setFaceImage(null);
+                setTargetFile(null);
+                setTargetType(null);
+              }}
+            >
+              <Text style={styles.resultActionText}>Generar otro</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.resultActionButtonPremium}
+              onPress={() => setTokens(tokens + 50)}
+            >
+              <Text style={styles.resultActionTextPremium}>+50 tokens</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
+
       {history.length > 0 && (
-  <View style={styles.card}>
-    <Text style={styles.cardTitle}>Historial</Text>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Historial</Text>
 
-    {history.map((item, index) => (
-      <View key={index} style={styles.historyItem}>
-        <Text style={styles.historyIcon}>🎬</Text>
-        <View>
-          <Text style={styles.historyTitle}>{item}</Text>
-          <Text style={styles.historySubtitle}>Listo para compartir</Text>
+          {history.map((item, index) => (
+            <View key={index} style={styles.historyItem}>
+              <Text style={styles.historyIcon}>🎬</Text>
+              <View>
+                <Text style={styles.historyTitle}>{item}</Text>
+                <Text style={styles.historySubtitle}>Listo para compartir</Text>
+              </View>
+            </View>
+          ))}
         </View>
-      </View>
-    ))}
-  </View>
-)}
-      <Modal visible={showResult} animationType="slide">
-  <View style={styles.fullscreenOverlay}>
-    <TouchableOpacity
-      style={styles.closeButton}
-      onPress={() => setShowResult(false)}
-    >
-      <Text style={styles.closeButtonText}>✕</Text>
-    </TouchableOpacity>
-
-    <Text style={styles.fullscreenTitle}>Resultado generado</Text>
-
-    <View style={styles.fullscreenVideoBox}>
-      {targetFile && targetType === 'video' ? (
-        <VideoView
-          player={player}
-          style={styles.fullscreenVideo}
-          allowsFullscreen
-          nativeControls
-          contentFit="contain"
-        />
-      ) : targetFile && targetType === 'image' ? (
-        <Image source={{ uri: targetFile }} style={styles.fullscreenImage} />
-      ) : (
-        <Text style={styles.fakeResultText}>No hay resultado</Text>
       )}
-    </View>
 
-    <TouchableOpacity style={styles.generateButton} onPress={shareResult}>
-  <Text style={styles.generateButtonText}>Compartir resultado</Text>
-</TouchableOpacity>
-  </View>
-</Modal>
+      <Modal visible={showResult} animationType="slide">
+        <View style={styles.fullscreenOverlay}>
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={() => setShowResult(false)}
+          >
+            <Text style={styles.closeButtonText}>✕</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.fullscreenTitle}>Resultado generado</Text>
+
+          <View style={styles.fullscreenVideoBox}>
+            {targetFile && targetType === 'video' ? (
+              <VideoView
+                player={player}
+                style={styles.fullscreenVideo}
+                allowsFullscreen
+                nativeControls
+                contentFit="contain"
+              />
+            ) : targetFile && targetType === 'image' ? (
+              <Image source={{ uri: targetFile }} style={styles.fullscreenImage} />
+            ) : (
+              <Text style={styles.fakeResultText}>No hay resultado</Text>
+            )}
+          </View>
+
+          <TouchableOpacity style={styles.generateButton} onPress={shareResult}>
+            <Text style={styles.generateButtonText}>Compartir resultado</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -468,10 +514,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   progressFill: {
-    width: '70%',
     height: '100%',
     backgroundColor: '#8B5CF6',
     borderRadius: 10,
+  },
+  progressText: {
+    color: '#A78BFA',
+    fontSize: 14,
+    marginTop: 10,
+    fontWeight: '700',
   },
   resultCard: {
     backgroundColor: '#202033',
@@ -486,178 +537,135 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     textAlign: 'center',
   },
-fakeResult: {
-  height: 220,
-  backgroundColor: '#111827',
-  borderRadius: 20,
-  marginTop: 18,
-  overflow: 'hidden',
-  alignItems: 'center',
-  justifyContent: 'center',
-},
   fakeResultText: {
     color: 'white',
     fontWeight: '900',
   },
-resultVideoWrapper: {
-  width: '92%',
-  height: 190,
-  borderRadius: 16,
-  overflow: 'hidden',
-  backgroundColor: '#000',
-},
-
-resultVideo: {
-  width: '100%',
-  height: '100%',
-},
-resultPreviewCard: {
-  width: '100%',
-  height: 220,
-  backgroundColor: '#111827',
-  borderRadius: 20,
-  marginTop: 18,
-  alignItems: 'center',
-  justifyContent: 'center',
-  borderWidth: 1,
-  borderColor: 'rgba(139,92,246,0.35)',
-},
-
-resultPlayIcon: {
-  color: 'white',
-  fontSize: 46,
-  fontWeight: '900',
-  marginBottom: 12,
-},
-
-resultPreviewTitle: {
-  color: 'white',
-  fontSize: 22,
-  fontWeight: '900',
-},
-
-resultPreviewSubtitle: {
-  color: '#B6B6CA',
-  fontSize: 14,
-  marginTop: 6,
-},
-progressText: {
-  color: '#A78BFA',
-  fontSize: 14,
-  marginTop: 10,
-  fontWeight: '700',
-},
-fullscreenOverlay: {
-  flex: 1,
-  backgroundColor: '#05050A',
-  padding: 20,
-  justifyContent: 'center',
-},
-
-closeButton: {
-  position: 'absolute',
-  top: 55,
-  right: 24,
-  width: 44,
-  height: 44,
-  borderRadius: 22,
-  backgroundColor: 'rgba(255,255,255,0.12)',
-  alignItems: 'center',
-  justifyContent: 'center',
-  zIndex: 10,
-},
-
-closeButtonText: {
-  color: 'white',
-  fontSize: 22,
-  fontWeight: '900',
-},
-
-fullscreenTitle: {
-  color: 'white',
-  fontSize: 28,
-  fontWeight: '900',
-  textAlign: 'center',
-  marginBottom: 20,
-},
-
-fullscreenVideoBox: {
-  width: '100%',
-  height: 460,
-  backgroundColor: '#000',
-  borderRadius: 24,
-  overflow: 'hidden',
-  alignItems: 'center',
-  justifyContent: 'center',
-  marginBottom: 24,
-},
-
-fullscreenVideo: {
-  width: '100%',
-  height: '100%',
-},
-
-fullscreenImage: {
-  width: '100%',
-  height: '100%',
-  resizeMode: 'contain',
-},
-historyItem: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  gap: 12,
-  backgroundColor: '#202033',
-  borderRadius: 16,
-  padding: 14,
-  marginTop: 12,
-},
-
-historyIcon: {
-  fontSize: 26,
-},
-
-historyTitle: {
-  color: 'white',
-  fontWeight: '900',
-  fontSize: 15,
-},
-
-historySubtitle: {
-  color: '#B6B6CA',
-  fontSize: 13,
-  marginTop: 3,
-},
-resultActions: {
-  flexDirection: 'row',
-  gap: 10,
-  marginTop: 16,
-},
-
-resultActionButton: {
-  flex: 1,
-  backgroundColor: 'rgba(139,92,246,0.18)',
-  paddingVertical: 13,
-  borderRadius: 14,
-  alignItems: 'center',
-},
-
-resultActionButtonPremium: {
-  flex: 1,
-  backgroundColor: '#FACC15',
-  paddingVertical: 13,
-  borderRadius: 14,
-  alignItems: 'center',
-},
-
-resultActionText: {
-  color: '#A78BFA',
-  fontWeight: '900',
-  fontSize: 12,
-},
-
-resultActionTextPremium: {
-  color: '#111',
-  fontWeight: '900',
-  fontSize: 12,
-},
+  resultPreviewCard: {
+    width: '100%',
+    height: 220,
+    backgroundColor: '#111827',
+    borderRadius: 20,
+    marginTop: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(139,92,246,0.35)',
+  },
+  resultPlayIcon: {
+    color: 'white',
+    fontSize: 46,
+    fontWeight: '900',
+    marginBottom: 12,
+  },
+  resultPreviewTitle: {
+    color: 'white',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  resultPreviewSubtitle: {
+    color: '#B6B6CA',
+    fontSize: 14,
+    marginTop: 6,
+  },
+  fullscreenOverlay: {
+    flex: 1,
+    backgroundColor: '#05050A',
+    padding: 20,
+    justifyContent: 'center',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 55,
+    right: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  closeButtonText: {
+    color: 'white',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  fullscreenTitle: {
+    color: 'white',
+    fontSize: 28,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  fullscreenVideoBox: {
+    width: '100%',
+    height: 460,
+    backgroundColor: '#000',
+    borderRadius: 24,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  fullscreenVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  fullscreenImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'contain',
+  },
+  historyItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#202033',
+    borderRadius: 16,
+    padding: 14,
+    marginTop: 12,
+  },
+  historyIcon: {
+    fontSize: 26,
+  },
+  historyTitle: {
+    color: 'white',
+    fontWeight: '900',
+    fontSize: 15,
+  },
+  historySubtitle: {
+    color: '#B6B6CA',
+    fontSize: 13,
+    marginTop: 3,
+  },
+  resultActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+  resultActionButton: {
+    flex: 1,
+    backgroundColor: 'rgba(139,92,246,0.18)',
+    paddingVertical: 13,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  resultActionButtonPremium: {
+    flex: 1,
+    backgroundColor: '#FACC15',
+    paddingVertical: 13,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  resultActionText: {
+    color: '#A78BFA',
+    fontWeight: '900',
+    fontSize: 12,
+  },
+  resultActionTextPremium: {
+    color: '#111',
+    fontWeight: '900',
+    fontSize: 12,
+  },
 });
