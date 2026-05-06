@@ -21,43 +21,12 @@ app.get('/', (req, res) => {
   });
 });
 
-app.post(
-  '/faceswap',
-  upload.fields([
-    { name: 'face', maxCount: 1 },
-    { name: 'target', maxCount: 1 },
-  ]),
-  async (req, res) => {
-    try {
-      const faceFile = req.files['face'][0];
-      const targetFile = req.files['target'][0];
-
-      const formData = new FormData();
-
-      formData.append(
-        'source_image',
-        fs.createReadStream(faceFile.path)
-      );
-
-      formData.append(
-        'target_video',
-        fs.createReadStream(targetFile.path)
-      );
-
-      formData.append('model_name', 'hyperswap_1a');
-      formData.append('face_detector_score', '0.3');
-
-      const response = await axios.post(
-        'https://api.segmind.com/v1/video-faceswap-by-facefusion-labs',
-        formData,
-        {
-          headers: {
-            ...formData.getHeaders(),
-            'x-api-key': process.env.SEGMIND_API_KEY,
-          },
-          responseType: 'arraybuffer',
-        }
-      );
+app.post('/faceswap', async (req, res) => {
+  res.json({
+    success: true,
+    message: 'Railway recibe /faceswap correctamente',
+  });
+});
 
       const base64Video = Buffer.from(
         response.data,
