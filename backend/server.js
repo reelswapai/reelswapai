@@ -1,18 +1,13 @@
-import axios from 'axios';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
-import FormData from 'form-data';
-import fs from 'fs';
-import multer from 'multer';
 
 dotenv.config();
 
 const app = express();
 
 app.use(cors());
-
-const upload = multer({ dest: 'uploads/' });
+app.use(express.json({ limit: '50mb' }));
 
 app.get('/', (req, res) => {
   res.json({
@@ -27,29 +22,6 @@ app.post('/faceswap', async (req, res) => {
     message: 'Railway recibe /faceswap correctamente',
   });
 });
-
-      const base64Video = Buffer.from(
-        response.data,
-        'binary'
-      ).toString('base64');
-
-      fs.unlinkSync(faceFile.path);
-      fs.unlinkSync(targetFile.path);
-
-      res.json({
-        success: true,
-        video: base64Video,
-      });
-    } catch (error) {
-      console.log(error?.response?.data || error.message);
-
-      res.status(500).json({
-        success: false,
-        error: error.message,
-      });
-    }
-  }
-);
 
 const PORT = process.env.PORT || 3000;
 
