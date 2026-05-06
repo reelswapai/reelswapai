@@ -30,26 +30,34 @@ app.post(
     try {
       console.log('Nueva petición FaceSwap');
 
-      const faceFile = req.files['face'][0];
-      const targetFile = req.files['target'][0];
+      const faceFile = req.files?.face?.[0];
+      const targetFile = req.files?.target?.[0];
+
+      if (!faceFile || !targetFile) {
+        return res.status(400).json({
+          success: false,
+          error: 'Faltan archivos face o target',
+        });
+      }
 
       const form = new FormData();
 
       form.append('source_image', faceFile.buffer, {
-        filename: faceFile.originalname,
-        contentType: faceFile.mimetype,
+        filename: faceFile.originalname || 'face.jpg',
+        contentType: faceFile.mimetype || 'image/jpeg',
       });
 
       form.append('target_video', targetFile.buffer, {
-        filename: targetFile.originalname,
-        contentType: targetFile.mimetype,
+        filename: targetFile.originalname || 'video.mp4',
+        contentType: targetFile.mimetype || 'video/mp4',
       });
 
       form.append('model_name', 'hyperswap_1a');
-form.append('face_detector_score', '0.3');
+      form.append('face_detector_score', '0.3');
+      form.append('target_face_index', '0');
 
-const response = await axios.post(
-  'https://api.segmind.com/v1/video-faceswap-by-facefusion-labs',
+      const response = await axios.post(
+        'https://api.segmind.com/v1/video-faceswap-by-facefusion-labs',
         form,
         {
           headers: {
@@ -59,6 +67,7 @@ const response = await axios.post(
           responseType: 'arraybuffer',
           maxBodyLength: Infinity,
           maxContentLength: Infinity,
+          timeout: 180000,
         }
       );
 
@@ -72,17 +81,22 @@ const response = await axios.post(
     } catch (error) {
       console.log('ERROR SEGMIND:');
 
-if (error.response) {
-  console.log(error.response.status);
-  console.log(error.response.data.toString());
-} else {
-  console.log(error.message);
-}
+      if (error.response) {
+        console.log(error.response.status);
+        console.log(Buffer.from(error.response.data).toString('utf8'));
+      } else {
+        console.log(error.message);
+      }
 
-res.status(500).json({
-  success: false,
-  error: error.response?.data?.toString() || error.message,
-});
+      res.status(500).json({
+        success: false,
+        error: error.response
+          ? Buffer.from(error.response.data).toString('utf8')
+          : error.message,
+      });
+    }
+  }
+);
 
 const PORT = process.env.PORT || 3000;
 
