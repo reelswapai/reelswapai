@@ -45,11 +45,11 @@ app.post(
         contentType: targetFile.mimetype,
       });
 
-      form.append('target_face_index', '0');
-      form.append('face_restore', 'true');
+      form.append('model_name', 'hyperswap_1a');
+form.append('face_detector_score', '0.3');
 
-      const response = await axios.post(
-        'https://api.segmind.com/v1/video-face-swap',
+const response = await axios.post(
+  'https://api.segmind.com/v1/video-faceswap-by-facefusion-labs',
         form,
         {
           headers: {
