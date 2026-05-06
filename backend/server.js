@@ -16,47 +16,23 @@ app.get("/", (req, res) => {
   });
 });
 
-app.post("/generate-video", async (req, res) => {
+app.post("/faceswap", async (req, res) => {
   try {
-    const { source_image, target_video } = req.body;
+    console.log("Nueva petición FaceSwap");
 
-    if (!source_image || !target_video) {
-      return res.status(400).json({
-        error: "Faltan source_image o target_video",
-      });
-    }
+    res.json({
+      success: true,
+      message: "Backend conectado correctamente 🚀",
+      result_url:
+        "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    });
 
-    const response = await fetch(
-      "https://api.segmind.com/v1/video-faceswap-by-facefusion-labs",
-      {
-        method: "POST",
-        headers: {
-          "x-api-key": process.env.SEGMIND_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          source_image,
-          target_video,
-          model_name: "hyperswap_1a",
-          face_detector_score: 0.5,
-        }),
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      return res.status(response.status).json({
-        error: "Error Segmind",
-        details: data,
-      });
-    }
-
-    res.json(data);
   } catch (error) {
+    console.log(error);
+
     res.status(500).json({
-      error: "Error interno",
-      details: error.message,
+      success: false,
+      error: error.message,
     });
   }
 });
@@ -64,5 +40,5 @@ app.post("/generate-video", async (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(`Servidor ReelSwapAI funcionando en puerto ${PORT}`);
+  console.log(`Servidor funcionando en puerto ${PORT}`);
 });
