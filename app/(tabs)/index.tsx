@@ -1,3 +1,4 @@
+import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -17,6 +18,8 @@ export default function HomeScreen() {
   const [faceImage, setFaceImage] = useState<string | null>(null);
   const [targetFile, setTargetFile] = useState<string | null>(null);
   const [targetType, setTargetType] = useState<'image' | 'video' | null>(null);
+  const [resultVideo, setResultVideo] = useState<string | null>(null);
+
   const [tokens, setTokens] = useState(999);
   const [generating, setGenerating] = useState(false);
   const [resultReady, setResultReady] = useState(false);
@@ -25,8 +28,15 @@ export default function HomeScreen() {
   const [history, setHistory] = useState<string[]>([]);
   const [showResult, setShowResult] = useState(false);
 
-  const player = useVideoPlayer(
+  const previewPlayer = useVideoPlayer(
     targetType === 'video' && targetFile ? targetFile : null,
+    (player) => {
+      player.loop = true;
+    }
+  );
+
+  const resultPlayer = useVideoPlayer(
+    resultVideo || null,
     (player) => {
       player.loop = true;
     }
@@ -49,6 +59,7 @@ export default function HomeScreen() {
     if (!result.canceled) {
       setFaceImage(result.assets[0].uri);
       setResultReady(false);
+      setResultVideo(null);
     }
   }
 
@@ -77,6 +88,7 @@ export default function HomeScreen() {
       setTargetFile(asset.uri);
       setTargetType(isVideo ? 'video' : 'image');
       setResultReady(false);
+      setResultVideo(null);
 
       Alert.alert(
         'Archivo añadido',
@@ -102,6 +114,7 @@ export default function HomeScreen() {
     try {
       setGenerating(true);
       setResultReady(false);
+      setResultVideo(null);
       setProgress(10);
       setStep('Subiendo archivos...');
 
@@ -119,7 +132,7 @@ export default function HomeScreen() {
         type: targetType === 'video' ? 'video/mp4' : 'image/jpeg',
       } as any);
 
-      formData.append('type', targetType || 'image');
+      formData.append('type', targetType || 'video');
 
       setProgress(35);
       setStep('Conectando con IA...');
@@ -132,26 +145,57 @@ export default function HomeScreen() {
         }
       );
 
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.log('ERROR BACKEND:', errorText);
+        throw new Error(errorText);
+      }
+
       setProgress(75);
-      setStep('Procesando resultado...');
+      setStep('Guardando resultado...');
 
-      const data = await response.json();
+      const blob = await response.blob();
 
-      console.log(data);
+      const reader = new FileReader();
 
-      setProgress(100);
-      setGenerating(false);
-      setResultReady(true);
-      setTokens(tokens - 3);
+      reader.onloadend = async () => {
+        try {
+          const base64data = reader.result?.toString().split(',')[1];
 
-      setHistory((prev) => [
-        `Resultado ${prev.length + 1} · ${
-          targetType === 'video' ? 'Vídeo' : 'Imagen'
-        }`,
-        ...prev,
-      ]);
+          if (!base64data) {
+            throw new Error('No se recibió vídeo generado.');
+          }
 
-      Alert.alert('Face swap completado 🔥', 'La IA ha generado el resultado.');
+          const fileUri =
+            FileSystem.documentDirectory + `reelswap-result-${Date.now()}.mp4`;
+
+          await FileSystem.writeAsStringAsync(fileUri, base64data, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+
+          setResultVideo(fileUri);
+          setProgress(100);
+          setGenerating(false);
+          setResultReady(true);
+          setTokens(tokens - 3);
+
+          setHistory((prev) => [
+            `Resultado ${prev.length + 1} · Vídeo`,
+            ...prev,
+          ]);
+
+          Alert.alert(
+            'Face swap completado 🔥',
+            'Vídeo generado correctamente.'
+          );
+        } catch (error) {
+          console.log(error);
+          setGenerating(false);
+          Alert.alert('Error', 'No se pudo guardar el vídeo generado.');
+        }
+      };
+
+      reader.readAsDataURL(blob);
     } catch (error) {
       console.log(error);
       setGenerating(false);
@@ -161,7 +205,9 @@ export default function HomeScreen() {
   }
 
   async function shareResult() {
-    if (!targetFile) {
+    const fileToShare = resultVideo || targetFile;
+
+    if (!fileToShare) {
       Alert.alert('Sin resultado', 'Primero genera un resultado.');
       return;
     }
@@ -176,7 +222,7 @@ export default function HomeScreen() {
       return;
     }
 
-    await Sharing.shareAsync(targetFile);
+    await Sharing.shareAsync(fileToShare);
   }
 
   return (
@@ -227,7 +273,7 @@ export default function HomeScreen() {
         {targetFile && targetType === 'video' && (
           <View style={styles.videoBox}>
             <VideoView
-              player={player}
+              player={previewPlayer}
               style={styles.video}
               allowsFullscreen
               nativeControls
@@ -285,8 +331,7 @@ export default function HomeScreen() {
           <Text style={styles.resultTitle}>Resultado listo 🎉</Text>
 
           <Text style={styles.cardText}>
-            Demo completada. El siguiente paso será conectar el resultado real de
-            la API.
+            Tu vídeo generado está listo para visualizar o compartir.
           </Text>
 
           <TouchableOpacity
@@ -317,6 +362,7 @@ export default function HomeScreen() {
                 setFaceImage(null);
                 setTargetFile(null);
                 setTargetType(null);
+                setResultVideo(null);
               }}
             >
               <Text style={styles.resultActionText}>Generar otro</Text>
@@ -360,16 +406,14 @@ export default function HomeScreen() {
           <Text style={styles.fullscreenTitle}>Resultado generado</Text>
 
           <View style={styles.fullscreenVideoBox}>
-            {targetFile && targetType === 'video' ? (
+            {resultVideo ? (
               <VideoView
-                player={player}
+                player={resultPlayer}
                 style={styles.fullscreenVideo}
                 allowsFullscreen
                 nativeControls
                 contentFit="contain"
               />
-            ) : targetFile && targetType === 'image' ? (
-              <Image source={{ uri: targetFile }} style={styles.fullscreenImage} />
             ) : (
               <Text style={styles.fakeResultText}>No hay resultado</Text>
             )}
@@ -611,11 +655,6 @@ const styles = StyleSheet.create({
   fullscreenVideo: {
     width: '100%',
     height: '100%',
-  },
-  fullscreenImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'contain',
   },
   historyItem: {
     flexDirection: 'row',
