@@ -88,19 +88,25 @@ app.post(
       form.append('target_face_index', '0');
 
       const response = await axios.post(
-        'https://api.segmind.com/v1/video-faceswap-by-facefusion-labs',
-        form,
-        {
-          headers: {
-            ...form.getHeaders(),
-            'x-api-key': process.env.SEGMIND_API_KEY,
-          },
-          responseType: 'arraybuffer',
-          timeout: 300000,
-          maxBodyLength: Infinity,
-          maxContentLength: Infinity,
-        }
-      );
+  'https://api.segmind.com/v1/video-faceswap-by-facefusion-labs',
+  {
+    source_image: faceUpload.secure_url,
+    target_video: videoUpload.secure_url,
+    model_name: 'hyperswap_1a',
+    face_detector_score: 0.3,
+    target_face_index: 0,
+  },
+  {
+    headers: {
+      'x-api-key': process.env.SEGMIND_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    responseType: 'arraybuffer',
+    timeout: 300000,
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+  }
+);
 
       console.log('Segmind respondió OK');
 
