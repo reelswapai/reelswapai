@@ -1,8 +1,8 @@
 import axios from 'axios';
+import { v2 as cloudinary } from 'cloudinary';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
-import FormData from 'form-data';
 import multer from 'multer';
 
 dotenv.config();
@@ -12,10 +12,35 @@ const upload = multer();
 
 app.use(cors());
 
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+function uploadToCloudinary(buffer, resourceType, folder, filename) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        resource_type: resourceType,
+        folder,
+        public_id: filename,
+        overwrite: true,
+      },
+      (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      }
+    );
+
+    stream.end(buffer);
+  });
+}
+
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'ReelSwapAI backend funcionando con Segmind directo',
+    message: 'ReelSwapAI backend funcionando con Cloudinary + Segmind',
   });
 });
 
@@ -39,69 +64,88 @@ app.post(
         });
       }
 
-      const form = new FormData();
+      console.log('Subiendo rostro a Cloudinary...');
+      const faceUpload = await uploadToCloudinary(
+        faceFile.buffer,
+        'image',
+        'reelswapai/faces',
+        `face-${Date.now()}`
+      );
 
-      form.append('source_image', faceFile.buffer, {
-  filename: faceFile.originalname || 'face.jpg',
-  contentType: faceFile.mimetype || 'image/jpeg',
-});
+      console.log('Subiendo vídeo a Cloudinary...');
+      const targetUpload = await uploadToCloudinary(
+        targetFile.buffer,
+        'video',
+        'reelswapai/targets',
+        `target-${Date.now()}`
+      );
 
-form.append('target_video', targetFile.buffer, {
-  filename: targetFile.originalname || 'video.mp4',
-  contentType: targetFile.mimetype || 'video/mp4',
-});
-      form.append('model_name', 'hyperswap_1a');
-      form.append('face_detector_score', '0.3');
-      form.append('target_face_index', '0');
+      console.log('Face URL:', faceUpload.secure_url);
+      console.log('Target URL:', targetUpload.secure_url);
 
       console.log('Enviando a Segmind...');
 
       const response = await axios.post(
-        'https://api.segmind.com/v1/video-faceswap-by-facefusion-labs',
-        form,
+        'https://api.segmind.com/v1/ai-face-swap',
+        {
+          source_image: faceUpload.secure_url,
+          target: targetUpload.secure_url,
+          pixel_boost: '384x384',
+          face_selector_mode: 'reference',
+          face_selector_order: 'large-small',
+          face_selector_age_start: 0,
+          face_selector_age_end: 100,
+          reference_face_distance: 0.6,
+          reference_frame_number: 1,
+          base64: false,
+        },
         {
           headers: {
-            ...form.getHeaders(),
             'x-api-key': process.env.SEGMIND_API_KEY,
+            'Content-Type': 'application/json',
           },
-          responseType: 'arraybuffer',
           timeout: 300000,
-          maxBodyLength: Infinity,
-          maxContentLength: Infinity,
           validateStatus: () => true,
         }
       );
 
-      const contentType = response.headers?.['content-type'] || '';
-
       console.log('Segmind status:', response.status);
-      console.log('Segmind content-type:', contentType);
+      console.log('Segmind response:', response.data);
 
-      const looksLikeMp4 =
-  response.data?.[4] === 0x66 &&
-  response.data?.[5] === 0x74 &&
-  response.data?.[6] === 0x79 &&
-  response.data?.[7] === 0x70;
-
-if (response.status >= 200 && response.status < 300 && looksLikeMp4) {
-        console.log('Segmind devolvió vídeo OK');
-
-        res.set({
-          'Content-Type': 'video/mp4',
+      if (response.status < 200 || response.status >= 300) {
+        return res.status(response.status).json({
+          success: false,
+          error: response.data,
         });
-
-        return res.send(response.data);
       }
 
-      const text = Buffer.from(response.data).toString('utf8');
+      const resultUrl =
+        response.data?.video ||
+        response.data?.output ||
+        response.data?.url ||
+        response.data?.image ||
+        response.data?.result;
 
-      console.log('Segmind no devolvió vídeo:');
-      console.log(text);
+      if (!resultUrl) {
+        return res.status(500).json({
+          success: false,
+          error: 'Segmind no devolvió URL de resultado',
+          raw: response.data,
+        });
+      }
 
-      return res.status(response.status || 500).json({
-        success: false,
-        error: text,
+      console.log('Descargando resultado:', resultUrl);
+
+      const videoResponse = await axios.get(resultUrl, {
+        responseType: 'arraybuffer',
+        timeout: 300000,
       });
+
+      res.set({
+        'Content-Type': 'video/mp4',
+      });
+
+      return res.send(videoResponse.data);
     } catch (error) {
       console.log('ERROR BACKEND:', error.message);
 
