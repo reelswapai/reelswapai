@@ -93,8 +93,7 @@ app.post(
         input: {
   video_url: targetUpload.secure_url,
   image_url: faceUpload.secure_url,
-  resolution: '540p',
-  mode: 'mimic',
+  
 },
         logs: true,
         onQueueUpdate: (update) => {
