@@ -91,9 +91,11 @@ app.post(
 
       const result = await fal.subscribe('fal-ai/pixverse/swap', {
         input: {
-          video_url: targetUpload.secure_url,
-          image_url: faceUpload.secure_url,
-        },
+  video_url: targetUpload.secure_url,
+  image_url: faceUpload.secure_url,
+  resolution: '540p',
+  mode: 'mimic',
+},
         logs: true,
         onQueueUpdate: (update) => {
           console.log('FAL update:', update.status);
