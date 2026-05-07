@@ -104,7 +104,7 @@ app.post(
             'x-api-key': process.env.SEGMIND_API_KEY,
             'Content-Type': 'application/json',
           },
-          timeout: 300000,
+          timeout: 900000,
           validateStatus: () => true,
         }
       );
@@ -138,7 +138,7 @@ app.post(
 
       const videoResponse = await axios.get(resultUrl, {
         responseType: 'arraybuffer',
-        timeout: 300000,
+        timeout: 900000,
       });
 
       res.set({
