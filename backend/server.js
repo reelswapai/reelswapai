@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { v2 as cloudinary } from 'cloudinary';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
@@ -11,7 +12,12 @@ const app = express();
 const upload = multer();
 
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 app.get('/', (req, res) => {
   res.json({
@@ -19,6 +25,23 @@ app.get('/', (req, res) => {
     message: 'ReelSwapAI backend funcionando',
   });
 });
+
+function uploadToCloudinary(buffer, resourceType, folder) {
+  return new Promise((resolve, reject) => {
+    cloudinary.uploader
+      .upload_stream(
+        {
+          resource_type: resourceType,
+          folder,
+        },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      )
+      .end(buffer);
+  });
+}
 
 app.post(
   '/faceswap',
@@ -40,34 +63,44 @@ app.post(
         });
       }
 
+      const faceUpload = await uploadToCloudinary(
+        faceFile.buffer,
+        'image',
+        'reelswap/faces'
+      );
+
+      const videoUpload = await uploadToCloudinary(
+        targetFile.buffer,
+        'video',
+        'reelswap/videos'
+      );
+
+      console.log('Cloudinary OK');
+      console.log(faceUpload.secure_url);
+      console.log(videoUpload.secure_url);
+
       const form = new FormData();
 
-      form.append('source_image', faceFile.buffer, {
-        filename: faceFile.originalname || 'face.jpg',
-        contentType: faceFile.mimetype || 'image/jpeg',
-      });
-
-      form.append('target_video', targetFile.buffer, {
-        filename: targetFile.originalname || 'video.mp4',
-        contentType: targetFile.mimetype || 'video/mp4',
-      });
-
+      form.append('source_image', faceUpload.secure_url);
+      form.append('target_video', videoUpload.secure_url);
       form.append('model_name', 'hyperswap_1a');
       form.append('face_detector_score', '0.3');
-      
+      form.append('target_face_index', '0');
 
       const response = await axios.post(
-  'https://api.segmind.com/v1/video-face-swap',
-  form,
-  {
-    headers: {
-      ...form.getHeaders(),
-      'x-api-key': process.env.SEGMIND_API_KEY,
-    },
-    responseType: 'arraybuffer',
-    timeout: 300000,
-  }
-);
+        'https://api.segmind.com/v1/video-faceswap-by-facefusion-labs',
+        form,
+        {
+          headers: {
+            ...form.getHeaders(),
+            'x-api-key': process.env.SEGMIND_API_KEY,
+          },
+          responseType: 'arraybuffer',
+          timeout: 300000,
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+        }
+      );
 
       console.log('Segmind respondió OK');
 
@@ -77,7 +110,7 @@ app.post(
 
       res.send(response.data);
     } catch (error) {
-      console.log('ERROR SEGMIND:');
+      console.log('ERROR REAL:');
 
       if (error.response) {
         console.log(error.response.status);
