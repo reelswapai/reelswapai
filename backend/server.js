@@ -122,12 +122,13 @@ app.post(
         videoUrl: resultUrl,
       });
     } catch (error) {
-      console.log('ERROR BACKEND:', error);
+      console.log('ERROR BACKEND FULL:');
+console.dir(error, { depth: null });
 
-      return res.status(500).json({
-        success: false,
-        error: error.message || error,
-      });
+return res.status(500).json({
+  success: false,
+  error: error?.body || error?.message || error,
+});
     }
   }
 );
