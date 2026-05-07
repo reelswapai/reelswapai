@@ -41,8 +41,15 @@ app.post(
 
       const form = new FormData();
 
-      form.append('source_image', faceFile.buffer.toString('base64'));
-      form.append('target_video', targetFile.buffer.toString('base64'));
+      form.append(
+  'source_image',
+  `data:${faceFile.mimetype};base64,${faceFile.buffer.toString('base64')}`
+);
+
+form.append(
+  'target_video',
+  `data:${targetFile.mimetype};base64,${targetFile.buffer.toString('base64')}`
+);
       form.append('model_name', 'hyperswap_1a');
       form.append('face_detector_score', '0.3');
       form.append('target_face_index', '0');
