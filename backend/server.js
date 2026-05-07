@@ -91,7 +91,7 @@ app.post(
   'https://api.segmind.com/v1/video-faceswap-by-facefusion-labs',
   {
     source_image: faceUpload.secure_url,
-    target_video: videoUpload.secure_url,
+    target_video: 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
     model_name: 'hyperswap_1a',
     face_detector_score: 0.3,
     target_face_index: 0,
