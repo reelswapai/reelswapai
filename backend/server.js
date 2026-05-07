@@ -90,7 +90,7 @@ app.post(
         {
           source_image: faceUpload.secure_url,
           target: targetUpload.secure_url,
-          pixel_boost: '384x384',
+          pixel_boost: '128x128',
           face_selector_mode: 'reference',
           face_selector_order: 'large-small',
           face_selector_age_start: 0,
