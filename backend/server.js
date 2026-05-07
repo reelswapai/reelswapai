@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { fal } from '@fal-ai/client';
 import { v2 as cloudinary } from 'cloudinary';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -11,6 +11,10 @@ const app = express();
 const upload = multer();
 
 app.use(cors());
+
+fal.config({
+  credentials: process.env.FAL_KEY,
+});
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -40,7 +44,7 @@ function uploadToCloudinary(buffer, resourceType, folder, filename) {
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'ReelSwapAI backend funcionando con Cloudinary + Segmind',
+    message: 'ReelSwapAI backend funcionando con fal.ai',
   });
 });
 
@@ -52,7 +56,7 @@ app.post(
   ]),
   async (req, res) => {
     try {
-      console.log('Nueva petición FaceSwap');
+      console.log('Nueva petición FaceSwap FAL');
 
       const faceFile = req.files?.face?.[0];
       const targetFile = req.files?.target?.[0];
@@ -83,75 +87,45 @@ app.post(
       console.log('Face URL:', faceUpload.secure_url);
       console.log('Target URL:', targetUpload.secure_url);
 
-      console.log('Enviando a Segmind...');
+      console.log('Enviando a fal.ai...');
 
-      const response = await axios.post(
-        'https://api.segmind.com/v1/ai-face-swap',
-        {
-          source_image: faceUpload.secure_url,
-          target: targetUpload.secure_url,
-          pixel_boost: '128x128',
-          face_selector_mode: 'reference',
-          face_selector_order: 'large-small',
-          face_selector_age_start: 0,
-          face_selector_age_end: 100,
-          reference_face_distance: 0.6,
-          reference_frame_number: 1,
-          base64: false,
+      const result = await fal.subscribe('fal-ai/pixverse/swap', {
+        input: {
+          video_url: targetUpload.secure_url,
+          image_url: faceUpload.secure_url,
         },
-        {
-          headers: {
-            'x-api-key': process.env.SEGMIND_API_KEY,
-            'Content-Type': 'application/json',
-          },
-          timeout: 900000,
-          validateStatus: () => true,
-        }
-      );
+        logs: true,
+        onQueueUpdate: (update) => {
+          console.log('FAL update:', update.status);
+        },
+      });
 
-      console.log('Segmind status:', response.status);
-      console.log('Segmind response:', response.data);
-
-      if (response.status < 200 || response.status >= 300) {
-        return res.status(response.status).json({
-          success: false,
-          error: response.data,
-        });
-      }
+      console.log('FAL result:', result.data);
 
       const resultUrl =
-        response.data?.video ||
-        response.data?.output ||
-        response.data?.url ||
-        response.data?.image ||
-        response.data?.result;
+        result.data?.video?.url ||
+        result.data?.video_url ||
+        result.data?.url ||
+        result.data?.output?.url;
 
       if (!resultUrl) {
         return res.status(500).json({
           success: false,
-          error: 'Segmind no devolvió URL de resultado',
-          raw: response.data,
+          error: 'fal.ai no devolvió URL de resultado',
+          raw: result.data,
         });
       }
 
-      console.log('Descargando resultado:', resultUrl);
-
-      const videoResponse = await axios.get(resultUrl, {
-        responseType: 'arraybuffer',
-        timeout: 900000,
+      return res.json({
+        success: true,
+        videoUrl: resultUrl,
       });
-
-      res.set({
-        'Content-Type': 'video/mp4',
-      });
-
-      return res.send(videoResponse.data);
     } catch (error) {
-      console.log('ERROR BACKEND:', error.message);
+      console.log('ERROR BACKEND:', error);
 
       return res.status(500).json({
         success: false,
-        error: error.message,
+        error: error.message || error,
       });
     }
   }
