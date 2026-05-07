@@ -1,9 +1,8 @@
-import axios from 'axios';
+import { fal } from '@fal-ai/client';
 import { v2 as cloudinary } from 'cloudinary';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
-import FormData from 'form-data';
 import multer from 'multer';
 
 dotenv.config();
@@ -12,6 +11,10 @@ const app = express();
 const upload = multer();
 
 app.use(cors());
+
+fal.config({
+  credentials: process.env.FAL_KEY,
+});
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -22,7 +25,7 @@ cloudinary.config({
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'ReelSwapAI backend funcionando',
+    message: 'ReelSwapAI backend funcionando con fal.ai',
   });
 });
 
@@ -51,7 +54,7 @@ app.post(
   ]),
   async (req, res) => {
     try {
-      console.log('Nueva petición FaceSwap');
+      console.log('Nueva petición FaceSwap con fal.ai');
 
       const faceFile = req.files?.face?.[0];
       const targetFile = req.files?.target?.[0];
@@ -76,59 +79,36 @@ app.post(
       );
 
       console.log('Cloudinary OK');
-      console.log(faceUpload.secure_url);
-      console.log(videoUpload.secure_url);
+      console.log('Face:', faceUpload.secure_url);
+      console.log('Video:', videoUpload.secure_url);
 
-      const form = new FormData();
+      const result = await fal.subscribe('fal-ai/pixverse/swap', {
+        input: {
+          video_url: videoUpload.secure_url,
+          image_url: faceUpload.secure_url,
+        },
+        logs: true,
+        onQueueUpdate: (update) => {
+          if (update.status === 'IN_PROGRESS') {
+            update.logs?.forEach((log) => console.log(log.message));
+          }
+        },
+      });
 
-      form.append('source_image', faceUpload.secure_url);
-      form.append('target_video', videoUpload.secure_url);
-      form.append('model_name', 'hyperswap_1a');
-      form.append('face_detector_score', '0.3');
-      form.append('target_face_index', '0');
+      console.log('fal.ai respondió OK');
+      console.log(result.data);
 
-      const response = await axios.post(
-  'https://api.segmind.com/v1/ai-face-swap',
-  {
-    source_image: 'https://segmind-resources.s3.amazonaws.com/input/8d67068b-dc76-4069-b231-acdbb644ab54-ai-video-swap-ip2.png',
-target: 'https://segmind-resources.s3.amazonaws.com/input/1f234efe-9867-475f-8ef2-81eef026fb50-7eb8f231-ace8-4dbe-bb6a-43ae13d1a89e.mp4',
-    pixel_boost: '384x384',
-    face_selector_mode: 'reference',
-    face_selector_order: 'large-small',
-    face_selector_age_start: 0,
-    face_selector_age_end: 100,
-    reference_face_distance: 0.6,
-    reference_frame_number: 1,
-    base64: false,
-  },
-  {
-    headers: {
-      'x-api-key': process.env.SEGMIND_API_KEY,
-      'Content-Type': 'application/json',
-    },
-    responseType: 'json',
-    timeout: 300000,
-  }
-);
-
-      console.log('Segmind respondió OK');
-
-      res.json(response.data);
+      res.json({
+        success: true,
+        result: result.data,
+      });
     } catch (error) {
-      console.log('ERROR REAL:');
-
-      if (error.response) {
-        console.log(error.response.status);
-        console.log(Buffer.from(error.response.data).toString('utf8'));
-      } else {
-        console.log(error.message);
-      }
+      console.log('ERROR FAL:');
+      console.log(error);
 
       res.status(500).json({
         success: false,
-        error: error.response
-          ? Buffer.from(error.response.data).toString('utf8')
-          : error.message,
+        error: error.message || 'Error generando con fal.ai',
       });
     }
   }
