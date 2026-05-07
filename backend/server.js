@@ -70,13 +70,13 @@ app.post(
       console.log('Segmind status:', response.status);
       console.log('Segmind content-type:', contentType);
 
-      if (
-        response.status >= 200 &&
-        response.status < 300 &&
-        (contentType.includes('video') ||
-          contentType.includes('octet-stream') ||
-          contentType.includes('application/octet-stream'))
-      ) {
+      const looksLikeMp4 =
+  response.data?.[4] === 0x66 &&
+  response.data?.[5] === 0x74 &&
+  response.data?.[6] === 0x79 &&
+  response.data?.[7] === 0x70;
+
+if (response.status >= 200 && response.status < 300 && looksLikeMp4) {
         console.log('Segmind devolvió vídeo OK');
 
         res.set({
