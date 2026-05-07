@@ -27,6 +27,8 @@ app.post(
   ]),
   async (req, res) => {
     try {
+      console.log('Nueva petición FaceSwap');
+
       const faceFile = req.files?.face?.[0];
       const targetFile = req.files?.target?.[0];
 
@@ -40,12 +42,12 @@ app.post(
       const form = new FormData();
 
       form.append('source_image', faceFile.buffer.toString('base64'));
-
-form.append('target_video', targetFile.buffer.toString('base64'));
-
+      form.append('target_video', targetFile.buffer.toString('base64'));
       form.append('model_name', 'hyperswap_1a');
       form.append('face_detector_score', '0.3');
       form.append('target_face_index', '0');
+
+      console.log('Enviando a Segmind...');
 
       const response = await axios.post(
         'https://api.segmind.com/v1/video-faceswap-by-facefusion-labs',
@@ -59,17 +61,46 @@ form.append('target_video', targetFile.buffer.toString('base64'));
           timeout: 300000,
           maxBodyLength: Infinity,
           maxContentLength: Infinity,
+          validateStatus: () => true,
         }
       );
 
-      res.set({ 'Content-Type': 'video/mp4' });
-      res.send(response.data);
-    } catch (error) {
-      res.status(500).json({
+      const contentType = response.headers?.['content-type'] || '';
+
+      console.log('Segmind status:', response.status);
+      console.log('Segmind content-type:', contentType);
+
+      if (
+        response.status >= 200 &&
+        response.status < 300 &&
+        (contentType.includes('video') ||
+          contentType.includes('octet-stream') ||
+          contentType.includes('application/octet-stream'))
+      ) {
+        console.log('Segmind devolvió vídeo OK');
+
+        res.set({
+          'Content-Type': 'video/mp4',
+        });
+
+        return res.send(response.data);
+      }
+
+      const text = Buffer.from(response.data).toString('utf8');
+
+      console.log('Segmind no devolvió vídeo:');
+      console.log(text);
+
+      return res.status(response.status || 500).json({
         success: false,
-        error: error.response
-          ? Buffer.from(error.response.data).toString('utf8')
-          : error.message,
+        error: text,
+      });
+    } catch (error) {
+      console.log('ERROR BACKEND:', error.message);
+
+      return res.status(500).json({
+        success: false,
+        error: error.message,
       });
     }
   }
