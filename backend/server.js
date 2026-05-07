@@ -90,8 +90,8 @@ app.post(
       const response = await axios.post(
   'https://api.segmind.com/v1/ai-face-swap',
   {
-    source_image: faceUpload.secure_url,
-    target: videoUpload.secure_url,
+    source_image: 'https://segmind-resources.s3.amazonaws.com/input/8d67068b-dc76-4069-b231-acdbb644ab54-ai-video-swap-ip2.png',
+target: 'https://segmind-resources.s3.amazonaws.com/input/1f234efe-9867-475f-8ef2-81eef026fb50-7eb8f231-ace8-4dbe-bb6a-43ae13d1a89e.mp4',
     pixel_boost: '384x384',
     face_selector_mode: 'reference',
     face_selector_order: 'large-small',
