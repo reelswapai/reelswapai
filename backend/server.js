@@ -88,33 +88,32 @@ app.post(
       form.append('target_face_index', '0');
 
       const response = await axios.post(
-  'https://api.segmind.com/v1/video-faceswap-by-facefusion-labs',
+  'https://api.segmind.com/v1/ai-face-swap',
   {
     source_image: faceUpload.secure_url,
-    target_video: 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
-    model_name: 'hyperswap_1a',
-    face_detector_score: 0.3,
-    target_face_index: 0,
+    target: videoUpload.secure_url,
+    pixel_boost: '384x384',
+    face_selector_mode: 'reference',
+    face_selector_order: 'large-small',
+    face_selector_age_start: 0,
+    face_selector_age_end: 100,
+    reference_face_distance: 0.6,
+    reference_frame_number: 1,
+    base64: false,
   },
   {
     headers: {
       'x-api-key': process.env.SEGMIND_API_KEY,
       'Content-Type': 'application/json',
     },
-    responseType: 'arraybuffer',
+    responseType: 'json',
     timeout: 300000,
-    maxBodyLength: Infinity,
-    maxContentLength: Infinity,
   }
 );
 
       console.log('Segmind respondió OK');
 
-      res.set({
-        'Content-Type': 'video/mp4',
-      });
-
-      res.send(response.data);
+      res.json(response.data);
     } catch (error) {
       console.log('ERROR REAL:');
 
