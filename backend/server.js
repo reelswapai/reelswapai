@@ -1,4 +1,3 @@
-import { fal } from '@fal-ai/client';
 import { v2 as cloudinary } from 'cloudinary';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -11,10 +10,6 @@ const app = express();
 const upload = multer();
 
 app.use(cors());
-
-fal.config({
-  credentials: process.env.FAL_KEY,
-});
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -89,35 +84,56 @@ app.post(
 
       console.log('Enviando a fal.ai...');
 
-      const result = await fal.subscribe('fal-ai/pixverse/swap', {
-  input: {
-    video_url: targetUpload.secure_url,
-    image_url: faceUpload.secure_url,
-    mode: 'person',
-    keyframe_id: 1,
-    resolution: '720p',
-    original_sound_switch: true,
+      const response = await fetch('https://api.segmind.com/v1/hyperface-swap', {
+  method: 'POST',
+  headers: {
+    'x-api-key': process.env.SEGMIND_API_KEY,
+    'Content-Type': 'application/json',
   },
-  logs: true,
-  onQueueUpdate: (update) => {
-    console.log('FAL update:', update.status);
-  },
+  body: JSON.stringify({
+    source_image: faceUpload.secure_url,
+    target: targetUpload.secure_url,
+    pixel_boost: '384x384',
+    face_selector_mode: 'reference',
+    face_selector_order: 'large-small',
+    face_selector_age_start: 0,
+    face_selector_age_end: 100,
+    reference_face_distance: 0.6,
+    reference_frame_number: 1,
+    base64: false,
+  }),
 });
-      console.log('FAL result:', result.data);
 
-      const resultUrl =
-        result.data?.video?.url ||
-        result.data?.video_url ||
-        result.data?.url ||
-        result.data?.output?.url;
+if (!response.ok) {
+  const errorText = await response.text();
+  console.log('Segmind error:', errorText);
 
-      if (!resultUrl) {
-        return res.status(500).json({
-          success: false,
-          error: 'fal.ai no devolvió URL de resultado',
-          raw: result.data,
-        });
-      }
+  return res.status(500).json({
+    success: false,
+    error: errorText,
+  });
+}
+
+const resultData = await response.json();
+
+const resultUrl =
+  resultData?.video_url ||
+  resultData?.output_url ||
+  resultData?.url ||
+  resultData?.output?.url;
+
+if (!resultUrl) {
+  return res.status(500).json({
+    success: false,
+    error: 'Segmind no devolvió URL de vídeo',
+    raw: resultData,
+  });
+}
+
+return res.json({
+  success: true,
+  videoUrl: resultUrl,
+});
 
       return res.json({
         success: true,
