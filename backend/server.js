@@ -170,7 +170,7 @@ app.post(
       );
 
       const response = await fetch(
-        'https://api.segmind.com/v1/face-swap',
+        'https://api.segmind.com/v1/faceswap',
         {
           method: 'POST',
           headers: {
