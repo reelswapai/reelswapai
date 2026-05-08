@@ -114,25 +114,18 @@ if (!response.ok) {
   });
 }
 
-const resultData = await response.json();
+const resultBuffer = Buffer.from(await response.arrayBuffer());
 
-const resultUrl =
-  resultData?.video_url ||
-  resultData?.output_url ||
-  resultData?.url ||
-  resultData?.output?.url;
-
-if (!resultUrl) {
-  return res.status(500).json({
-    success: false,
-    error: 'Segmind no devolvió URL de vídeo',
-    raw: resultData,
-  });
-}
+const finalUpload = await uploadToCloudinary(
+  resultBuffer,
+  'video',
+  'reelswapai/results',
+  `result-${Date.now()}`
+);
 
 return res.json({
   success: true,
-  videoUrl: resultUrl,
+  videoUrl: finalUpload.secure_url,
 });
 
       return res.json({
