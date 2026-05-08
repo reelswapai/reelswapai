@@ -84,7 +84,7 @@ app.post(
 
       console.log('Enviando a fal.ai...');
 
-      const response = await fetch('https://api.segmind.com/v1/hyperface-swap', {
+      const response = await fetch('https://api.segmind.com/v1/video-faceswap-by-facefusion-labs', {
   method: 'POST',
   headers: {
     'x-api-key': process.env.SEGMIND_API_KEY,
