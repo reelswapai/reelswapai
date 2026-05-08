@@ -1,5 +1,4 @@
 import * as ImagePicker from 'expo-image-picker';
-import * as Sharing from 'expo-sharing';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { useState } from 'react';
 import {
@@ -7,17 +6,36 @@ import {
   Image,
   Modal,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 
+type SwapMode = 'image' | 'video';
+type ResultType = 'image' | 'video';
+
+const BACKEND_URL = 'https://reelswapai-production.up.railway.app';
+
+function getVideoTokens(seconds: number) {
+  if (seconds <= 10) return 3;
+  if (seconds <= 20) return 6;
+  if (seconds <= 30) return 10;
+  if (seconds <= 45) return 16;
+  return 24;
+}
+
 export default function HomeScreen() {
+  const [mode, setMode] = useState<SwapMode>('video');
+
   const [faceImage, setFaceImage] = useState<string | null>(null);
   const [targetFile, setTargetFile] = useState<string | null>(null);
-  const [targetType, setTargetType] = useState<'image' | 'video' | null>(null);
-  const [resultVideo, setResultVideo] = useState<string | null>(null);
+  const [targetType, setTargetType] = useState<ResultType | null>(null);
+  const [targetDuration, setTargetDuration] = useState<number>(10);
+
+  const [resultUrl, setResultUrl] = useState<string | null>(null);
+  const [resultType, setResultType] = useState<ResultType | null>(null);
 
   const [tokens, setTokens] = useState(999);
   const [generating, setGenerating] = useState(false);
@@ -27,6 +45,8 @@ export default function HomeScreen() {
   const [history, setHistory] = useState<string[]>([]);
   const [showResult, setShowResult] = useState(false);
 
+  const currentCost = mode === 'image' ? 2 : getVideoTokens(targetDuration);
+
   const previewPlayer = useVideoPlayer(
     targetType === 'video' && targetFile ? targetFile : null,
     (player) => {
@@ -35,11 +55,36 @@ export default function HomeScreen() {
   );
 
   const resultPlayer = useVideoPlayer(
-    resultVideo || null,
+    resultType === 'video' && resultUrl ? resultUrl : null,
     (player) => {
       player.loop = true;
     }
   );
+
+  function resetResult() {
+    setResultReady(false);
+    setResultUrl(null);
+    setResultType(null);
+    setShowResult(false);
+  }
+
+  function cleanError(error: any) {
+    const text = String(error?.message || error || '');
+
+    if (text.includes('content_policy_violation')) {
+      return 'El archivo ha sido bloqueado por el proveedor de IA. Prueba con otra foto o vídeo.';
+    }
+
+    if (text.includes('timeout')) {
+      return 'La generación ha tardado demasiado. Prueba con un vídeo más corto.';
+    }
+
+    if (text.includes('Insufficient') || text.includes('balance')) {
+      return 'El proveedor indica saldo insuficiente.';
+    }
+
+    return 'Algo falló conectando con la IA. Prueba otra vez.';
+  }
 
   async function pickFace() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -51,14 +96,13 @@ export default function HomeScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
+      quality: 0.9,
       allowsEditing: true,
     });
 
     if (!result.canceled) {
       setFaceImage(result.assets[0].uri);
-      setResultReady(false);
-      setResultVideo(null);
+      resetResult();
     }
   }
 
@@ -71,57 +115,82 @@ export default function HomeScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      mediaTypes:
+        mode === 'image'
+          ? ImagePicker.MediaTypeOptions.Images
+          : ImagePicker.MediaTypeOptions.Videos,
       quality: 1,
-      videoMaxDuration: 300,
+      videoMaxDuration: 60,
     });
 
-    if (!result.canceled) {
-      const asset = result.assets[0];
+    if (result.canceled) return;
 
-      const isVideo =
-        asset.type === 'video' ||
-        asset.uri.toLowerCase().includes('.mov') ||
-        asset.uri.toLowerCase().includes('.mp4');
+    const asset = result.assets[0];
 
-      if (!isVideo) {
-  Alert.alert(
-    'Solo vídeo',
-    'Ahora mismo este generador solo acepta vídeo como destino.'
-  );
-  return;
-}
-
-setTargetFile(asset.uri);
-setTargetType('video');
-      setResultReady(false);
-      setResultVideo(null);
-
-      Alert.alert(
-        'Archivo añadido',
-        isVideo ? 'Vídeo seleccionado ✅' : 'Imagen seleccionada ✅'
-      );
+    if (mode === 'image') {
+      setTargetFile(asset.uri);
+      setTargetType('image');
+      setTargetDuration(0);
+      resetResult();
+      Alert.alert('Imagen añadida ✅', 'Foto destino seleccionada.');
+      return;
     }
+
+    const isVideo =
+      asset.type === 'video' ||
+      asset.uri.toLowerCase().includes('.mov') ||
+      asset.uri.toLowerCase().includes('.mp4');
+
+    if (!isVideo) {
+      Alert.alert('Solo vídeo', 'En modo vídeo necesitas seleccionar un vídeo.');
+      return;
+    }
+
+    const durationSeconds = Math.ceil((asset.duration || 10000) / 1000);
+
+    if (durationSeconds > 60) {
+      Alert.alert(
+        'Vídeo demasiado largo',
+        'De momento el máximo permitido es 60 segundos.'
+      );
+      return;
+    }
+
+    setTargetFile(asset.uri);
+    setTargetType('video');
+    setTargetDuration(durationSeconds || 10);
+    resetResult();
+
+    Alert.alert(
+      'Vídeo añadido ✅',
+      `Duración aproximada: ${durationSeconds || 10}s · Coste: ${getVideoTokens(
+        durationSeconds || 10
+      )} tokens`
+    );
   }
 
   async function generateSwap() {
     if (!faceImage || !targetFile) {
       Alert.alert(
         'Faltan archivos',
-        'Sube primero una cara y una foto o vídeo destino.'
+        mode === 'image'
+          ? 'Sube primero una cara y una foto destino.'
+          : 'Sube primero una cara y un vídeo destino.'
       );
       return;
     }
 
-    if (tokens < 3) {
-      Alert.alert('Tokens insuficientes', 'Necesitas 3 tokens para generar.');
+    if (tokens < currentCost) {
+      Alert.alert(
+        'Tokens insuficientes',
+        `Necesitas ${currentCost} tokens para generar.`
+      );
       return;
     }
 
     try {
       setGenerating(true);
-      setResultReady(false);
-      setResultVideo(null);
+      resetResult();
       setProgress(10);
       setStep('Subiendo archivos...');
 
@@ -135,22 +204,21 @@ setTargetType('video');
 
       formData.append('target', {
         uri: targetFile,
-        name: targetType === 'video' ? 'video.mp4' : 'image.jpg',
-        type: targetType === 'video' ? 'video/mp4' : 'image/jpeg',
+        name: mode === 'video' ? 'target.mp4' : 'target.jpg',
+        type: mode === 'video' ? 'video/mp4' : 'image/jpeg',
       } as any);
 
-      formData.append('type', targetType || 'video');
+      formData.append('type', mode);
 
       setProgress(35);
-      setStep('Conectando con IA...');
+      setStep('Generando con IA...');
 
-      const response = await fetch(
-        'https://reelswapai-production.up.railway.app/faceswap',
-        {
-          method: 'POST',
-          body: formData,
-        }
-      );
+      const endpoint = mode === 'image' ? '/imageswap' : '/faceswap';
+
+      const response = await fetch(`${BACKEND_URL}${endpoint}`, {
+        method: 'POST',
+        body: formData,
+      });
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -158,65 +226,72 @@ setTargetType('video');
         throw new Error(errorText);
       }
 
-      setProgress(75);
-setStep('Recibiendo resultado...');
+      setProgress(80);
+      setStep('Preparando resultado...');
 
-const data = await response.json();
+      const data = await response.json();
 
-if (!data.success || !data.videoUrl) {
-  throw new Error(JSON.stringify(data));
-}
+      const finalUrl =
+        data.videoUrl ||
+        data.imageUrl ||
+        data.resultUrl ||
+        data.url;
 
-setResultVideo(data.videoUrl);
+      if (!data.success || !finalUrl) {
+        throw new Error(JSON.stringify(data));
+      }
 
-setProgress(100);
-setGenerating(false);
-setResultReady(true);
-setTokens(tokens - 3);
+      setResultUrl(finalUrl);
+      setResultType(mode);
 
-setHistory((prev) => [
-  `Resultado ${prev.length + 1} · Vídeo`,
-  ...prev,
-]);
+      setProgress(100);
+      setGenerating(false);
+      setResultReady(true);
+      setTokens((prev) => prev - currentCost);
 
-Alert.alert(
-  'Face swap completado 🔥',
-  'Vídeo generado correctamente.'
-);
+      setHistory((prev) => [
+        `${mode === 'image' ? 'Foto' : 'Vídeo'} · ${currentCost} tokens`,
+        ...prev,
+      ]);
+
+      Alert.alert(
+        'Resultado listo 🔥',
+        mode === 'image'
+          ? 'Imagen generada correctamente.'
+          : 'Vídeo generado correctamente.'
+      );
     } catch (error) {
       console.log(error);
       setGenerating(false);
-
-      Alert.alert('Error', 'Algo falló conectando con la IA.');
+      Alert.alert('Error', cleanError(error));
     }
   }
 
   async function shareResult() {
-    const fileToShare = resultVideo || targetFile;
-
-    if (!fileToShare) {
+    if (!resultUrl) {
       Alert.alert('Sin resultado', 'Primero genera un resultado.');
       return;
     }
 
-    const canShare = await Sharing.isAvailableAsync();
+    await Share.share({
+      message: `Mira lo que he creado con ReelSwapAI 🔥\n${resultUrl}`,
+      url: resultUrl,
+    });
+  }
 
-    if (!canShare) {
-      Alert.alert(
-        'No disponible',
-        'Compartir no está disponible en este dispositivo.'
-      );
-      return;
-    }
-
-    await Sharing.shareAsync(fileToShare);
+  function changeMode(nextMode: SwapMode) {
+    setMode(nextMode);
+    setTargetFile(null);
+    setTargetType(null);
+    setTargetDuration(nextMode === 'video' ? 10 : 0);
+    resetResult();
   }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.hero}>
         <View style={styles.topRow}>
-          <Text style={styles.badge}>IA FACE SWAP</Text>
+          <Text style={styles.badge}>AI FACE SWAP</Text>
 
           <TouchableOpacity onPress={() => setTokens(tokens + 50)}>
             <Text style={styles.tokens}>⚡ {tokens} tokens</Text>
@@ -226,18 +301,56 @@ Alert.alert(
         <Text style={styles.title}>ReelSwap AI</Text>
 
         <Text style={styles.subtitle}>
-          Crea vídeos virales con tu rostro en segundos.
+          Cambia tu rostro en fotos y vídeos con calidad premium.
         </Text>
 
+        <View style={styles.modeSwitch}>
+          <TouchableOpacity
+            style={[
+              styles.modeButton,
+              mode === 'video' && styles.modeButtonActive,
+            ]}
+            onPress={() => changeMode('video')}
+          >
+            <Text
+              style={[
+                styles.modeText,
+                mode === 'video' && styles.modeTextActive,
+              ]}
+            >
+              Vídeo
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.modeButton,
+              mode === 'image' && styles.modeButtonActive,
+            ]}
+            onPress={() => changeMode('image')}
+          >
+            <Text
+              style={[
+                styles.modeText,
+                mode === 'image' && styles.modeTextActive,
+              ]}
+            >
+              Foto
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         <TouchableOpacity style={styles.button} onPress={generateSwap}>
-          <Text style={styles.buttonText}>✨ Crear ahora</Text>
+          <Text style={styles.buttonText}>
+            ✨ Crear ahora · {currentCost} tokens
+          </Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>1. Sube tu rostro</Text>
+        <Text style={styles.cardTitle}>1. Tu rostro</Text>
         <Text style={styles.cardText}>
-          Elige la cara que quieres usar para el face swap.
+          Elige una foto clara de la cara que quieres usar.
         </Text>
 
         {faceImage && <Image source={{ uri: faceImage }} style={styles.preview} />}
@@ -250,8 +363,15 @@ Alert.alert(
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>2. Sube foto o vídeo destino</Text>
-        <Text style={styles.cardText}>Máximo recomendado: 5 minutos.</Text>
+        <Text style={styles.cardTitle}>
+          2. {mode === 'image' ? 'Foto destino' : 'Vídeo destino'}
+        </Text>
+
+        <Text style={styles.cardText}>
+          {mode === 'image'
+            ? 'Elige la imagen donde quieres aplicar el rostro. Coste: 2 tokens.'
+            : 'Elige un vídeo de máximo 60 segundos. El coste depende de la duración.'}
+        </Text>
 
         {targetFile && targetType === 'image' && (
           <Image source={{ uri: targetFile }} style={styles.preview} />
@@ -269,22 +389,51 @@ Alert.alert(
           </View>
         )}
 
+        {mode === 'video' && targetFile && (
+          <Text style={styles.costText}>
+            Duración: {targetDuration}s · Coste: {currentCost} tokens
+          </Text>
+        )}
+
         <TouchableOpacity style={styles.secondaryButton} onPress={pickTarget}>
           <Text style={styles.secondaryButtonText}>
-            {targetFile ? 'Cambiar archivo' : 'Seleccionar archivo'}
+            {targetFile ? 'Cambiar destino' : 'Seleccionar destino'}
           </Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.card}>
+        <Text style={styles.cardTitle}>Tokens</Text>
+
+        <View style={styles.tokenGrid}>
+          <View style={styles.tokenPack}>
+            <Text style={styles.packTitle}>Starter</Text>
+            <Text style={styles.packTokens}>20 tokens</Text>
+            <Text style={styles.packPrice}>2,99 €</Text>
+          </View>
+
+          <View style={styles.tokenPackPopular}>
+            <Text style={styles.packBadge}>POPULAR</Text>
+            <Text style={styles.packTitle}>Pro</Text>
+            <Text style={styles.packTokens}>55 tokens</Text>
+            <Text style={styles.packPrice}>6,99 €</Text>
+          </View>
+        </View>
+
+        <Text style={styles.cardText}>
+          Próximamente conectaremos estos packs con RevenueCat.
+        </Text>
+      </View>
+
+      <View style={styles.card}>
         <Text style={styles.cardTitle}>3. Generar</Text>
         <Text style={styles.cardText}>
-          La prueba consume 3 tokens. De momento es una simulación premium.
+          Esta generación consumirá {currentCost} tokens.
         </Text>
 
         <TouchableOpacity style={styles.generateButton} onPress={generateSwap}>
           <Text style={styles.generateButtonText}>
-            Generar Face Swap · 3 tokens
+            Generar {mode === 'image' ? 'Foto' : 'Vídeo'} · {currentCost} tokens
           </Text>
         </TouchableOpacity>
       </View>
@@ -299,60 +448,53 @@ Alert.alert(
           </Text>
 
           <View style={styles.progressBar}>
-            <View
-              style={[
-                styles.progressFill,
-                { width: `${progress}%` },
-              ]}
-            />
+            <View style={[styles.progressFill, { width: `${progress}%` }]} />
           </View>
 
           <Text style={styles.cardText}>
-            Nuestra IA está preparando el resultado final.
+            La IA está generando el resultado. No cierres la app.
           </Text>
         </View>
       )}
 
-      {resultReady && (
+      {resultReady && resultUrl && (
         <View style={styles.resultCard}>
           <Text style={styles.resultTitle}>Resultado listo 🎉</Text>
 
           <Text style={styles.cardText}>
-            Tu vídeo generado está listo para visualizar o compartir.
+            Tu {resultType === 'image' ? 'imagen' : 'vídeo'} ya está preparado.
           </Text>
 
           <TouchableOpacity
             style={styles.resultPreviewCard}
             onPress={() => setShowResult(true)}
           >
-            <Text style={styles.resultPlayIcon}>▶</Text>
-
-            <Text style={styles.resultPreviewTitle}>Resultado generado</Text>
-
-            <Text style={styles.resultPreviewSubtitle}>
-              Toca para ver el vídeo
-            </Text>
+            {resultType === 'image' ? (
+              <Image source={{ uri: resultUrl }} style={styles.resultImagePreview} />
+            ) : (
+              <>
+                <Text style={styles.resultPlayIcon}>▶</Text>
+                <Text style={styles.resultPreviewTitle}>Vídeo generado</Text>
+                <Text style={styles.resultPreviewSubtitle}>Toca para verlo</Text>
+              </>
+            )}
           </TouchableOpacity>
 
           <View style={styles.resultActions}>
-            <TouchableOpacity
-              style={styles.resultActionButton}
-              onPress={shareResult}
-            >
+            <TouchableOpacity style={styles.resultActionButton} onPress={shareResult}>
               <Text style={styles.resultActionText}>Compartir</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.resultActionButton}
               onPress={() => {
-                setResultReady(false);
                 setFaceImage(null);
                 setTargetFile(null);
                 setTargetType(null);
-                setResultVideo(null);
+                resetResult();
               }}
             >
-              <Text style={styles.resultActionText}>Generar otro</Text>
+              <Text style={styles.resultActionText}>Otro</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -371,7 +513,9 @@ Alert.alert(
 
           {history.map((item, index) => (
             <View key={index} style={styles.historyItem}>
-              <Text style={styles.historyIcon}>🎬</Text>
+              <Text style={styles.historyIcon}>
+                {item.includes('Foto') ? '🖼️' : '🎬'}
+              </Text>
               <View>
                 <Text style={styles.historyTitle}>{item}</Text>
                 <Text style={styles.historySubtitle}>Listo para compartir</Text>
@@ -393,7 +537,9 @@ Alert.alert(
           <Text style={styles.fullscreenTitle}>Resultado generado</Text>
 
           <View style={styles.fullscreenVideoBox}>
-            {resultVideo ? (
+            {resultType === 'image' && resultUrl ? (
+              <Image source={{ uri: resultUrl }} style={styles.fullscreenImage} />
+            ) : resultType === 'video' && resultUrl ? (
               <VideoView
                 player={resultPlayer}
                 style={styles.fullscreenVideo}
@@ -418,17 +564,19 @@ Alert.alert(
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#080814',
+    backgroundColor: '#050509',
   },
   content: {
     padding: 20,
     paddingBottom: 120,
   },
   hero: {
-    backgroundColor: '#8B5CF6',
-    borderRadius: 30,
+    backgroundColor: '#11111C',
+    borderRadius: 32,
     padding: 24,
     marginTop: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   topRow: {
     flexDirection: 'row',
@@ -436,8 +584,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   badge: {
-    color: 'white',
+    color: '#A78BFA',
     fontWeight: '900',
+    fontSize: 12,
+    letterSpacing: 1,
   },
   tokens: {
     color: '#FACC15',
@@ -450,16 +600,39 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   subtitle: {
-    color: 'rgba(255,255,255,0.85)',
+    color: '#B6B6CA',
     fontSize: 16,
     marginTop: 10,
     lineHeight: 24,
+  },
+  modeSwitch: {
+    flexDirection: 'row',
+    backgroundColor: '#050509',
+    borderRadius: 18,
+    padding: 5,
+    marginTop: 22,
+  },
+  modeButton: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  modeButtonActive: {
+    backgroundColor: '#8B5CF6',
+  },
+  modeText: {
+    color: '#B6B6CA',
+    fontWeight: '900',
+  },
+  modeTextActive: {
+    color: 'white',
   },
   button: {
     backgroundColor: 'white',
     paddingVertical: 16,
     borderRadius: 18,
-    marginTop: 24,
+    marginTop: 20,
     alignItems: 'center',
   },
   buttonText: {
@@ -468,10 +641,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   card: {
-    backgroundColor: '#161625',
+    backgroundColor: '#11111C',
     marginTop: 20,
-    borderRadius: 24,
+    borderRadius: 26,
     padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
   cardTitle: {
     color: 'white',
@@ -485,7 +660,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   secondaryButton: {
-    backgroundColor: 'rgba(139,92,246,0.18)',
+    backgroundColor: 'rgba(139,92,246,0.16)',
     paddingVertical: 14,
     borderRadius: 16,
     alignItems: 'center',
@@ -509,14 +684,15 @@ const styles = StyleSheet.create({
   },
   preview: {
     width: '100%',
-    height: 220,
-    borderRadius: 18,
+    height: 240,
+    borderRadius: 20,
     marginTop: 16,
+    backgroundColor: '#000',
   },
   videoBox: {
     width: '100%',
     height: 320,
-    borderRadius: 18,
+    borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: '#000',
     marginTop: 16,
@@ -525,10 +701,55 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  costText: {
+    color: '#FACC15',
+    marginTop: 12,
+    fontWeight: '900',
+  },
+  tokenGrid: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 14,
+  },
+  tokenPack: {
+    flex: 1,
+    backgroundColor: '#1A1A2C',
+    borderRadius: 18,
+    padding: 16,
+  },
+  tokenPackPopular: {
+    flex: 1,
+    backgroundColor: '#261B4D',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#8B5CF6',
+  },
+  packBadge: {
+    color: '#FACC15',
+    fontSize: 10,
+    fontWeight: '900',
+    marginBottom: 6,
+  },
+  packTitle: {
+    color: 'white',
+    fontWeight: '900',
+    fontSize: 16,
+  },
+  packTokens: {
+    color: '#B6B6CA',
+    marginTop: 8,
+  },
+  packPrice: {
+    color: 'white',
+    fontWeight: '900',
+    fontSize: 20,
+    marginTop: 8,
+  },
   loaderCard: {
-    backgroundColor: '#202033',
+    backgroundColor: '#151525',
     marginTop: 20,
-    borderRadius: 24,
+    borderRadius: 26,
     padding: 24,
     alignItems: 'center',
   },
@@ -556,9 +777,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   resultCard: {
-    backgroundColor: '#202033',
+    backgroundColor: '#151525',
     marginTop: 20,
-    borderRadius: 24,
+    borderRadius: 26,
     padding: 20,
   },
   resultTitle: {
@@ -574,14 +795,19 @@ const styles = StyleSheet.create({
   },
   resultPreviewCard: {
     width: '100%',
-    height: 220,
-    backgroundColor: '#111827',
-    borderRadius: 20,
+    height: 240,
+    backgroundColor: '#050509',
+    borderRadius: 22,
     marginTop: 18,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(139,92,246,0.35)',
+    overflow: 'hidden',
+  },
+  resultImagePreview: {
+    width: '100%',
+    height: '100%',
   },
   resultPlayIcon: {
     color: 'white',
@@ -601,7 +827,7 @@ const styles = StyleSheet.create({
   },
   fullscreenOverlay: {
     flex: 1,
-    backgroundColor: '#05050A',
+    backgroundColor: '#050509',
     padding: 20,
     justifyContent: 'center',
   },
@@ -631,7 +857,7 @@ const styles = StyleSheet.create({
   },
   fullscreenVideoBox: {
     width: '100%',
-    height: 460,
+    height: 520,
     backgroundColor: '#000',
     borderRadius: 24,
     overflow: 'hidden',
@@ -643,11 +869,16 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  fullscreenImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'contain',
+  },
   historyItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#202033',
+    backgroundColor: '#1A1A2C',
     borderRadius: 16,
     padding: 14,
     marginTop: 12,

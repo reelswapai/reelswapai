@@ -39,7 +39,7 @@ function uploadToCloudinary(buffer, resourceType, folder, filename) {
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'ReelSwapAI backend funcionando con fal.ai',
+    message: 'ReelSwapAI backend funcionando v2 con imageswap',
   });
 });
 
@@ -51,7 +51,7 @@ app.post(
   ]),
   async (req, res) => {
     try {
-      console.log('Nueva petición FaceSwap FAL');
+      console.log('Nueva petición FaceSwap VIDEO');
 
       const faceFile = req.files?.face?.[0];
       const targetFile = req.files?.target?.[0];
@@ -63,7 +63,6 @@ app.post(
         });
       }
 
-      console.log('Subiendo rostro a Cloudinary...');
       const faceUpload = await uploadToCloudinary(
         faceFile.buffer,
         'image',
@@ -71,7 +70,6 @@ app.post(
         `face-${Date.now()}`
       );
 
-      console.log('Subiendo vídeo a Cloudinary...');
       const targetUpload = await uploadToCloudinary(
         targetFile.buffer,
         'video',
@@ -79,67 +77,148 @@ app.post(
         `target-${Date.now()}`
       );
 
-      console.log('Face URL:', faceUpload.secure_url);
-      console.log('Target URL:', targetUpload.secure_url);
+      const response = await fetch(
+        'https://api.segmind.com/v1/video-faceswap-by-facefusion-labs',
+        {
+          method: 'POST',
+          headers: {
+            'x-api-key': process.env.SEGMIND_API_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            source_image: faceUpload.secure_url,
+            target_video: targetUpload.secure_url,
+            pixel_boost: '384x384',
+            face_selector_mode: 'reference',
+            face_selector_order: 'large-small',
+            face_selector_age_start: 0,
+            face_selector_age_end: 100,
+            reference_face_distance: 0.6,
+            reference_frame_number: 1,
+            base64: false,
+          }),
+        }
+      );
 
-      console.log('Enviando a fal.ai...');
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.log('Segmind video error:', errorText);
 
-      const response = await fetch('https://api.segmind.com/v1/video-faceswap-by-facefusion-labs', {
-  method: 'POST',
-  headers: {
-    'x-api-key': process.env.SEGMIND_API_KEY,
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    source_image: faceUpload.secure_url,
-    target_video: targetUpload.secure_url,
-    pixel_boost: '384x384',
-    face_selector_mode: 'reference',
-    face_selector_order: 'large-small',
-    face_selector_age_start: 0,
-    face_selector_age_end: 100,
-    reference_face_distance: 0.6,
-    reference_frame_number: 1,
-    base64: false,
-  }),
-});
+        return res.status(500).json({
+          success: false,
+          error: errorText,
+        });
+      }
 
-if (!response.ok) {
-  const errorText = await response.text();
-  console.log('Segmind error:', errorText);
+      const resultBuffer = Buffer.from(await response.arrayBuffer());
 
-  return res.status(500).json({
-    success: false,
-    error: errorText,
-  });
-}
-
-const resultBuffer = Buffer.from(await response.arrayBuffer());
-
-const finalUpload = await uploadToCloudinary(
-  resultBuffer,
-  'video',
-  'reelswapai/results',
-  `result-${Date.now()}`
-);
-
-return res.json({
-  success: true,
-  videoUrl: finalUpload.secure_url,
-});
+      const finalUpload = await uploadToCloudinary(
+        resultBuffer,
+        'video',
+        'reelswapai/results',
+        `result-video-${Date.now()}`
+      );
 
       return res.json({
         success: true,
-        videoUrl: resultUrl,
+        videoUrl: finalUpload.secure_url,
       });
     } catch (error) {
-      console.log('ERROR BACKEND FULL:');
-console.dir(error, { depth: null });
+      console.log('ERROR BACKEND VIDEO FULL:');
+      console.dir(error, { depth: null });
 
-return res.status(500).json({
-  success: false,
-  error: error?.body || error?.message || error,
-});
+      return res.status(500).json({
+        success: false,
+        error: error?.body || error?.message || error,
+      });
+    }
+  }
+);
+
+app.post(
+  '/imageswap',
+  upload.fields([
+    { name: 'face', maxCount: 1 },
+    { name: 'target', maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      console.log('Nueva petición FaceSwap FOTO');
+
+      const faceFile = req.files?.face?.[0];
+      const targetFile = req.files?.target?.[0];
+
+      if (!faceFile || !targetFile) {
+        return res.status(400).json({
+          success: false,
+          error: 'Faltan archivos face o target',
+        });
+      }
+
+      const faceUpload = await uploadToCloudinary(
+        faceFile.buffer,
+        'image',
+        'reelswapai/faces',
+        `face-${Date.now()}`
+      );
+
+      const targetUpload = await uploadToCloudinary(
+        targetFile.buffer,
+        'image',
+        'reelswapai/targets',
+        `target-image-${Date.now()}`
+      );
+
+      const response = await fetch(
+        'https://api.segmind.com/v1/face-swap',
+        {
+          method: 'POST',
+          headers: {
+            'x-api-key': process.env.SEGMIND_API_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            source_img: faceUpload.secure_url,
+            target_img: targetUpload.secure_url,
+            input_faces_index: 0,
+            source_faces_index: 0,
+            face_restore: true,
+            base64: false,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.log('Segmind image error:', errorText);
+
+        return res.status(500).json({
+          success: false,
+          error: errorText,
+        });
+      }
+
+      const resultBuffer = Buffer.from(await response.arrayBuffer());
+
+      const finalUpload = await uploadToCloudinary(
+        resultBuffer,
+        'image',
+        'reelswapai/results',
+        `result-image-${Date.now()}`
+      );
+
+      return res.json({
+        success: true,
+        imageUrl: finalUpload.secure_url,
+      });
+    } catch (error) {
+      console.log('ERROR BACKEND IMAGE FULL:');
+      console.dir(error, { depth: null });
+
+      return res.status(500).json({
+        success: false,
+        error: error?.body || error?.message || error,
+      });
     }
   }
 );
