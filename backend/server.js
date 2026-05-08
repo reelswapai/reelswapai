@@ -93,8 +93,8 @@ app.post(
   input: {
     video_url: targetUpload.secure_url,
     image_url: faceUpload.secure_url,
-    mode: 'face',
-    keyframe_id: 0,
+    mode: 'person',
+    keyframe_id: 1,
     resolution: '720p',
     original_sound_switch: true,
   },
