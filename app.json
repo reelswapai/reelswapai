@@ -1,5 +1,13 @@
 {
   "expo": {
+    "plugins": [
+  [
+    "expo-media-library",
+    {
+      "photosPermission": "Permitir acceso para guardar tus resultados de ReelSwap AI."
+    }
+  ]
+],
     "name": "ReelSwapAI",
     "slug": "ReelSwapAI",
     "version": "1.0.0",

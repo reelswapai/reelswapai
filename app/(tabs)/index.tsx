@@ -1,4 +1,7 @@
+import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
+import * as MediaLibrary from 'expo-media-library';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { useState } from 'react';
 import {
@@ -6,11 +9,10 @@ import {
   Image,
   Modal,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 
 type SwapMode = 'image' | 'video';
@@ -44,6 +46,10 @@ export default function HomeScreen() {
   const [progress, setProgress] = useState(0);
   const [history, setHistory] = useState<string[]>([]);
   const [showResult, setShowResult] = useState(false);
+  const [cloudinaryPublicId, setCloudinaryPublicId] = useState<string | null>(null);
+
+const [cloudinaryResourceType, setCloudinaryResourceType] =
+  useState<'image' | 'video' | null>(null);
 
   const currentCost = mode === 'image' ? 2 : getVideoTokens(targetDuration);
 
@@ -168,7 +174,18 @@ export default function HomeScreen() {
       )} tokens`
     );
   }
+async function convertToJpg(uri: string) {
+  const result = await ImageManipulator.manipulateAsync(
+    uri,
+    [],
+    {
+      compress: 0.9,
+      format: ImageManipulator.SaveFormat.JPEG,
+    }
+  );
 
+  return result.uri;
+}
   async function generateSwap() {
     if (!faceImage || !targetFile) {
       Alert.alert(
@@ -193,17 +210,23 @@ export default function HomeScreen() {
       resetResult();
       setProgress(10);
       setStep('Subiendo archivos...');
+let finalFace = faceImage;
+let finalTarget = targetFile;
 
+if (targetType === 'image') {
+  finalFace = await convertToJpg(faceImage);
+  finalTarget = await convertToJpg(targetFile);
+}
       const formData = new FormData();
 
       formData.append('face', {
-        uri: faceImage,
+        uri: finalFace,
         name: 'face.jpg',
         type: 'image/jpeg',
       } as any);
 
       formData.append('target', {
-        uri: targetFile,
+        uri: finalTarget,
         name: mode === 'video' ? 'target.mp4' : 'target.jpg',
         type: mode === 'video' ? 'video/mp4' : 'image/jpeg',
       } as any);
@@ -268,24 +291,80 @@ export default function HomeScreen() {
   }
 
   async function shareResult() {
-    if (!resultUrl) {
-      Alert.alert('Sin resultado', 'Primero genera un resultado.');
+  try {
+    const fileToShare = resultUrl || targetFile;
+
+    if (!fileToShare) {
+      Alert.alert('Sin resultado');
       return;
     }
 
-    await Share.share({
-      message: `Mira lo que he creado con ReelSwapAI 🔥\n${resultUrl}`,
-      url: resultUrl,
-    });
-  }
+    const permission =
+      await MediaLibrary.requestPermissionsAsync();
 
-  function changeMode(nextMode: SwapMode) {
-    setMode(nextMode);
-    setTargetFile(null);
-    setTargetType(null);
-    setTargetDuration(nextMode === 'video' ? 10 : 0);
-    resetResult();
+    if (!permission.granted) {
+      Alert.alert(
+        'Permiso requerido',
+        'Necesitamos permiso para guardar archivos.'
+      );
+      return;
+    }
+
+    const extension =
+  fileToShare.includes('.mp4') || fileToShare.includes('.mov')
+    ? 'mp4'
+    : 'jpg';
+
+    const localUri =
+      FileSystem.documentDirectory +
+      `reelswap-${Date.now()}.${extension}`;
+
+    setStep('Descargando resultado...');
+    setGenerating(true);
+
+    const download = await FileSystem.downloadAsync(
+      fileToShare,
+      localUri
+    );
+
+    const asset = await MediaLibrary.createAssetAsync(download.uri);
+
+await MediaLibrary.createAlbumAsync(
+  'ReelSwap AI',
+  asset,
+  false
+);
+
+    setGenerating(false);
+
+    const canShare =
+      await Sharing.isAvailableAsync();
+
+    if (!canShare) {
+      Alert.alert(
+        'Guardado',
+        'Resultado guardado en galería.'
+      );
+      return;
+    }
+
+    await Sharing.shareAsync(download.uri);
+
+    Alert.alert(
+      'Guardado ✅',
+      'Resultado guardado en galería.'
+    );
+  } catch (error) {
+    console.log(error);
+
+    setGenerating(false);
+
+    Alert.alert(
+      'Error',
+      'No se pudo guardar el resultado.'
+    );
   }
+}
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -310,7 +389,7 @@ export default function HomeScreen() {
               styles.modeButton,
               mode === 'video' && styles.modeButtonActive,
             ]}
-            onPress={() => changeMode('video')}
+            onPress={() => setMode('video')}
           >
             <Text
               style={[
@@ -327,7 +406,7 @@ export default function HomeScreen() {
               styles.modeButton,
               mode === 'image' && styles.modeButtonActive,
             ]}
-            onPress={() => changeMode('image')}
+            onPress={() => setMode('image')}
           >
             <Text
               style={[

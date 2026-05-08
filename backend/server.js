@@ -35,7 +35,19 @@ function uploadToCloudinary(buffer, resourceType, folder, filename) {
     stream.end(buffer);
   });
 }
+async function deleteFromCloudinary(publicId, resourceType) {
+  try {
+    if (!publicId) return;
 
+    await cloudinary.uploader.destroy(publicId, {
+      resource_type: resourceType,
+    });
+
+    console.log('Borrado Cloudinary:', publicId);
+  } catch (error) {
+    console.log('Error borrando Cloudinary:', error);
+  }
+}
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
@@ -209,7 +221,21 @@ app.post(
         'reelswapai/results',
         `result-image-${Date.now()}`
       );
+await deleteFromCloudinary(faceUpload.public_id, 'image');
 
+await deleteFromCloudinary(
+  targetUpload.public_id,
+  targetFile.mimetype.includes('video')
+    ? 'video'
+    : 'image'
+);
+
+await deleteFromCloudinary(
+  finalUpload.public_id,
+  targetFile.mimetype.includes('video')
+    ? 'video'
+    : 'image'
+);
       return res.json({
         success: true,
         imageUrl: finalUpload.secure_url,
