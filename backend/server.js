@@ -170,21 +170,24 @@ app.post(
       );
 
       const response = await fetch(
-        'https://api.segmind.com/v1/faceswap',
-        {
+  'https://api.segmind.com/v1/hyperswap-image-faceswap-by-facefusion-labs',
+  {
           method: 'POST',
           headers: {
             'x-api-key': process.env.SEGMIND_API_KEY,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            source_img: faceUpload.secure_url,
-            target_img: targetUpload.secure_url,
-            input_faces_index: 0,
-            source_faces_index: 0,
-            face_restore: true,
-            base64: false,
-          }),
+  source_image: faceUpload.secure_url,
+  target_image: targetUpload.secure_url,
+  face_selector_mode: 'reference',
+  face_selector_order: 'large-small',
+  face_selector_age_start: 0,
+  face_selector_age_end: 100,
+  reference_face_distance: 0.6,
+  reference_frame_number: 1,
+  base64: false,
+}),
         }
       );
 
