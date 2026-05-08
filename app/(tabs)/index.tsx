@@ -1,4 +1,3 @@
-import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -85,8 +84,16 @@ export default function HomeScreen() {
         asset.uri.toLowerCase().includes('.mov') ||
         asset.uri.toLowerCase().includes('.mp4');
 
-      setTargetFile(asset.uri);
-      setTargetType(isVideo ? 'video' : 'image');
+      if (!isVideo) {
+  Alert.alert(
+    'Solo vídeo',
+    'Ahora mismo este generador solo acepta vídeo como destino.'
+  );
+  return;
+}
+
+setTargetFile(asset.uri);
+setTargetType('video');
       setResultReady(false);
       setResultVideo(null);
 
@@ -152,50 +159,30 @@ export default function HomeScreen() {
       }
 
       setProgress(75);
-      setStep('Guardando resultado...');
+setStep('Recibiendo resultado...');
 
-      const blob = await response.blob();
+const data = await response.json();
 
-      const reader = new FileReader();
+if (!data.success || !data.videoUrl) {
+  throw new Error(JSON.stringify(data));
+}
 
-      reader.onloadend = async () => {
-        try {
-          const base64data = reader.result?.toString().split(',')[1];
+setResultVideo(data.videoUrl);
 
-          if (!base64data) {
-            throw new Error('No se recibió vídeo generado.');
-          }
+setProgress(100);
+setGenerating(false);
+setResultReady(true);
+setTokens(tokens - 3);
 
-          const fileUri =
-            FileSystem.documentDirectory + `reelswap-result-${Date.now()}.mp4`;
+setHistory((prev) => [
+  `Resultado ${prev.length + 1} · Vídeo`,
+  ...prev,
+]);
 
-          await FileSystem.writeAsStringAsync(fileUri, base64data, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-
-          setResultVideo(fileUri);
-          setProgress(100);
-          setGenerating(false);
-          setResultReady(true);
-          setTokens(tokens - 3);
-
-          setHistory((prev) => [
-            `Resultado ${prev.length + 1} · Vídeo`,
-            ...prev,
-          ]);
-
-          Alert.alert(
-            'Face swap completado 🔥',
-            'Vídeo generado correctamente.'
-          );
-        } catch (error) {
-          console.log(error);
-          setGenerating(false);
-          Alert.alert('Error', 'No se pudo guardar el vídeo generado.');
-        }
-      };
-
-      reader.readAsDataURL(blob);
+Alert.alert(
+  'Face swap completado 🔥',
+  'Vídeo generado correctamente.'
+);
     } catch (error) {
       console.log(error);
       setGenerating(false);

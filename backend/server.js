@@ -91,9 +91,13 @@ app.post(
 
       const result = await fal.subscribe('fal-ai/pixverse/swap', {
         input: {
+  input: {
   video_url: targetUpload.secure_url,
   image_url: faceUpload.secure_url,
-  
+  mode: 'face',
+  keyframe_id: 0,
+  resolution: '720p',
+  original_sound_switch: true,
 },
         logs: true,
         onQueueUpdate: (update) => {
