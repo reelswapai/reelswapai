@@ -2,6 +2,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
+import * as Sharing from 'expo-sharing';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { useState } from 'react';
 import {
@@ -47,8 +48,7 @@ export default function HomeScreen() {
   const [history, setHistory] = useState<string[]>([]);
   const [showResult, setShowResult] = useState(false);
   const [cloudinaryPublicId, setCloudinaryPublicId] = useState<string | null>(null);
-
-const [cloudinaryResourceType, setCloudinaryResourceType] =
+  const [cloudinaryResourceType, setCloudinaryResourceType] =
   useState<'image' | 'video' | null>(null);
 
   const currentCost = mode === 'image' ? 2 : getVideoTokens(targetDuration);
@@ -254,6 +254,11 @@ if (targetType === 'image') {
 
       const data = await response.json();
 
+      setCloudinaryPublicId(data.cloudinaryPublicId || null);
+
+setCloudinaryResourceType(
+  data.cloudinaryResourceType || null
+);
       const finalUrl =
         data.videoUrl ||
         data.imageUrl ||
@@ -349,7 +354,24 @@ await MediaLibrary.createAlbumAsync(
     }
 
     await Sharing.shareAsync(download.uri);
-
+if (
+  cloudinaryPublicId &&
+  cloudinaryResourceType
+) {
+  await fetch(
+    'https://reelswapai-production.up.railway.app/delete-cloudinary-result',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        publicId: cloudinaryPublicId,
+        resourceType: cloudinaryResourceType,
+      }),
+    }
+  );
+}
     Alert.alert(
       'Guardado ✅',
       'Resultado guardado en galería.'

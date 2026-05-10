@@ -44,6 +44,7 @@ async function deleteFromCloudinary(publicId, resourceType) {
     });
 
     console.log('Borrado Cloudinary:', publicId);
+    console.log('Tipo recurso:', resourceType);
   } catch (error) {
     console.log('Error borrando Cloudinary:', error);
   }
@@ -100,12 +101,12 @@ app.post(
           body: JSON.stringify({
             source_image: faceUpload.secure_url,
             target_video: targetUpload.secure_url,
-            pixel_boost: '384x384',
+            pixel_boost: '768x768',
             face_selector_mode: 'reference',
             face_selector_order: 'large-small',
             face_selector_age_start: 0,
             face_selector_age_end: 100,
-            reference_face_distance: 0.6,
+            reference_face_distance: 0.45,
             reference_frame_number: 1,
             base64: false,
           }),
@@ -249,7 +250,31 @@ return res.json({
     }
   }
 );
+app.post('/delete-cloudinary-result', express.json(), async (req, res) => {
+  try {
+    const { publicId, resourceType } = req.body;
 
+    if (!publicId || !resourceType) {
+      return res.status(400).json({
+        success: false,
+        error: 'Faltan publicId o resourceType',
+      });
+    }
+
+    await deleteFromCloudinary(publicId, resourceType);
+
+    return res.json({
+      success: true,
+    });
+  } catch (error) {
+    console.log('Error endpoint delete-cloudinary-result:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: error?.message || error,
+    });
+  }
+});
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, '0.0.0.0', () => {
