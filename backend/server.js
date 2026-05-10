@@ -230,16 +230,14 @@ await deleteFromCloudinary(
     : 'image'
 );
 
-await deleteFromCloudinary(
-  finalUpload.public_id,
-  targetFile.mimetype.includes('video')
+return res.json({
+  success: true,
+  videoUrl: finalUpload.secure_url,
+  cloudinaryPublicId: finalUpload.public_id,
+  cloudinaryResourceType: targetFile.mimetype.includes('video')
     ? 'video'
-    : 'image'
-);
-      return res.json({
-        success: true,
-        imageUrl: finalUpload.secure_url,
-      });
+    : 'image',
+});
     } catch (error) {
       console.log('ERROR BACKEND IMAGE FULL:');
       console.dir(error, { depth: null });
