@@ -132,9 +132,11 @@ app.post(
       );
 
       return res.json({
-        success: true,
-        videoUrl: finalUpload.secure_url,
-      });
+  success: true,
+  imageUrl: finalUpload.secure_url,
+  cloudinaryPublicId: finalUpload.public_id,
+  cloudinaryResourceType: 'image',
+});
     } catch (error) {
       console.log('ERROR BACKEND VIDEO FULL:');
       console.dir(error, { depth: null });
@@ -234,9 +236,7 @@ return res.json({
   success: true,
   videoUrl: finalUpload.secure_url,
   cloudinaryPublicId: finalUpload.public_id,
-  cloudinaryResourceType: targetFile.mimetype.includes('video')
-    ? 'video'
-    : 'image',
+  cloudinaryResourceType: 'video',
 });
     } catch (error) {
       console.log('ERROR BACKEND IMAGE FULL:');
