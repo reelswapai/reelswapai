@@ -5,6 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import {
   addDoc,
@@ -34,10 +35,18 @@ import GenerateCard from '../../components/GenerateCard';
 import GenerationHistory from '../../components/GenerationHistory';
 import PurchaseHistory from '../../components/PurchaseHistory';
 import TokenPacks from '../../components/TokenPacks';
-import { auth, db } from "../../firebaseConfig";
+import { auth, db } from '../../firebaseConfig';
 
 type SwapMode = 'image' | 'video';
 type ResultType = 'image' | 'video';
+
+type DetectedFace = {
+  index: number;
+  x: number; // 0..1
+  y: number; // 0..1
+  width: number; // 0..1
+  height: number; // 0..1
+};
 
 const BACKEND_URL = 'https://reelswapai-production.up.railway.app';
 
@@ -52,60 +61,61 @@ function getVideoTokens(seconds: number) {
 export default function HomeScreen() {
   const [mode, setMode] = useState<SwapMode>('video');
   const scrollRef = useRef<ScrollView>(null);
+
   const [faceImage, setFaceImage] = useState<string | null>(null);
   const [targetFile, setTargetFile] = useState<string | null>(null);
   const [targetType, setTargetType] = useState<ResultType | null>(null);
   const [targetDuration, setTargetDuration] = useState<number>(10);
+
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewType, setPreviewType] = useState<'image' | 'video' | null>(null);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLogin, setIsLogin] = useState(true);
   const [user, setUser] = useState<any>(null);
+
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [resultType, setResultType] = useState<ResultType | null>(null);
-  const USE_REVENUECAT = false;
-  type DetectedFace = {
-  index: number;
-  x: number;      // normalizado 0..1
-  y: number;      // normalizado 0..1
-  width: number;  // normalizado 0..1
-  height: number; // normalizado 0..1
-};
 
-const [detectedFaces, setDetectedFaces] = useState<DetectedFace[]>([]);
-const [selectedFaceIndex, setSelectedFaceIndex] = useState<number | null>(null);
-const [previewUri, setPreviewUri] = useState<string | null>(null);
-const [previewWidth, setPreviewWidth] = useState(0);
-const [previewHeight, setPreviewHeight] = useState(0);
-const [detectingFaces, setDetectingFaces] = useState(false);
+  const USE_REVENUECAT = false;
+
+  const [detectedFaces, setDetectedFaces] = useState<DetectedFace[]>([]);
+  const [selectedFaceIndex, setSelectedFaceIndex] = useState<number | null>(null);
+  const [previewUri, setPreviewUri] = useState<string | null>(null);
+  const [previewWidth, setPreviewWidth] = useState(0);
+  const [previewHeight, setPreviewHeight] = useState(0);
+  const [previewOriginalWidth, setPreviewOriginalWidth] = useState(0);
+  const [previewOriginalHeight, setPreviewOriginalHeight] = useState(0);
+  const [detectingFaces, setDetectingFaces] = useState(false);
 
   const TOKEN_PACKS = [
-  {
-    id: 'tokens_20',
-    revenueCatId: 'tokens_20',
-    title: 'Starter',
-    tokens: 20,
-    price: '4,99 €',
-    badge: null,
-  },
-  {
-    id: 'tokens_55',
-    revenueCatId: 'tokens_55',
-    title: 'Pro',
-    tokens: 55,
-    price: '9,99 €',
-    badge: 'Popular',
-  },
-  {
-    id: 'tokens_120',
-    revenueCatId: 'tokens_120',
-    title: 'Premium',
-    tokens: 120,
-    price: '19,99 €',
-    badge: null,
-  },
-];
+    {
+      id: 'tokens_20',
+      revenueCatId: 'tokens_20',
+      title: 'Starter',
+      tokens: 20,
+      price: '4,99 €',
+      badge: null,
+    },
+    {
+      id: 'tokens_55',
+      revenueCatId: 'tokens_55',
+      title: 'Pro',
+      tokens: 55,
+      price: '9,99 €',
+      badge: 'Popular',
+    },
+    {
+      id: 'tokens_120',
+      revenueCatId: 'tokens_120',
+      title: 'Premium',
+      tokens: 120,
+      price: '19,99 €',
+      badge: null,
+    },
+  ];
+
   const [tokens, setTokens] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [resultReady, setResultReady] = useState(false);
@@ -117,175 +127,11 @@ const [detectingFaces, setDetectingFaces] = useState(false);
   const [packages, setPackages] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [cloudinaryPublicId, setCloudinaryPublicId] =
-    useState<string | null>(null);
-
+  const [cloudinaryPublicId, setCloudinaryPublicId] = useState<string | null>(null);
   const [cloudinaryResourceType, setCloudinaryResourceType] =
     useState<'image' | 'video' | null>(null);
 
   const currentCost = mode === 'image' ? 2 : getVideoTokens(targetDuration);
-async function detectFaces(fileUri: string) {
-  try {
-    setDetectingFaces(true);
-    setDetectedFaces([]);
-    setSelectedFaceIndex(null);
-
-    const formData = new FormData();
-    formData.append('target', {
-      uri: fileUri,
-      name: 'target.jpg',
-      type: 'image/jpeg',
-    } as any);
-
-    const response = await fetch(
-      'https://reelswapai-production.up.railway.app/detect-faces',
-      {
-        method: 'POST',
-        body: formData,
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || 'No se pudieron detectar caras');
-    }
-
-    setDetectedFaces(data.faces || []);
-
-    if (data.faces?.length > 0) {
-      setSelectedFaceIndex(0);
-    } else {
-      Alert.alert(
-        'Sin caras detectadas',
-        'No se han detectado caras en esta imagen previa.'
-      );
-    }
-  } catch (error: any) {
-    console.log('Error detectando caras:', error);
-    Alert.alert('Error', error?.message || 'No se pudieron detectar caras.');
-  } finally {
-    setDetectingFaces(false);
-  }
-}
-function formatDate(dateString?: string) {
-  if (!dateString) return '';
-
-  const date = new Date(dateString);
-  const now = new Date();
-
-  const isToday =
-    date.getDate() === now.getDate() &&
-    date.getMonth() === now.getMonth() &&
-    date.getFullYear() === now.getFullYear();
-
-  const time = date.toLocaleTimeString('es-ES', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
-  if (isToday) {
-    return `Hoy ${time}`;
-  }
-
-  return date.toLocaleDateString('es-ES', {
-    day: '2-digit',
-    month: 'short',
-  }) + ` · ${time}`;
-}
-async function loadPurchaseHistory(userId: string) {
-  try {
-    const purchasesRef = collection(db, 'users', userId, 'purchaseHistory');
-
-    const purchasesQuery = query(
-      purchasesRef,
-      orderBy('createdAt', 'desc')
-    );
-
-    const snapshot = await getDocs(purchasesQuery);
-
-    const purchases = snapshot.docs.map((docItem) => ({
-      id: docItem.id,
-      ...docItem.data(),
-    }));
-
-    setPurchaseHistory(purchases);
-  } catch (error) {
-    console.log('Error cargando historial de compras:', error);
-  }
-}
-  useEffect(() => {
-  Purchases.configure({
-    apiKey: 'test_nKIwwycKEUdOcwnYObDKSjrWMFI',
-  });
-
-  loadProducts();
-
-  const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-    setUser(currentUser);
-
-    if (!currentUser) {
-      setTokens(0);
-      setPurchaseHistory([]);
-       setGenerationHistory([]);
-      return;
-    }
-
-    const userRef = doc(db, 'users', currentUser.uid);
-    const userSnap = await getDoc(userRef);
-
-    if (userSnap.exists()) {
-      const data = userSnap.data();
-      setTokens(data.tokens || 0);
-    }
-    await loadPurchaseHistory(currentUser.uid);
-    await loadGenerationHistory(currentUser.uid);
-  });
-
-  return () => unsubscribe();
-}, []);
-
-async function loadGenerationHistory(userId: string) {
-  try {
-    const historyRef = collection(db, 'users', userId, 'history');
-    
-    const historyQuery = query(
-      historyRef,
-      orderBy('createdAt', 'desc')
-    );
-
-    const snapshot = await getDocs(historyQuery);
-
-    const generations = snapshot.docs.map((docItem) => ({
-      id: docItem.id,
-      ...docItem.data(),
-    }));
-
-    setGenerationHistory(generations);
-  } catch (error) {
-    console.log('Error cargando historial de generaciones:', error);
-  }
-}
-async function loadProducts() {
-  try {
-    setLoadingProducts(true);
-
-    const offerings = await Purchases.getOfferings();
-
-    if (offerings.current) {
-      setPackages(offerings.current.availablePackages);
-      console.log(
-        'RevenueCat packages:',
-        offerings.current.availablePackages
-      );
-    }
-  } catch (error) {
-    console.log('Error cargando productos RevenueCat:', error);
-  } finally {
-    setLoadingProducts(false);
-  }
-}
-
 
   const previewPlayer = useVideoPlayer(
     targetType === 'video' && targetFile ? targetFile : null,
@@ -301,11 +147,30 @@ async function loadProducts() {
     }
   );
 
+  const historyPreviewPlayer = useVideoPlayer(
+    previewType === 'video' && previewUrl ? previewUrl : null,
+    (player) => {
+      player.loop = true;
+    }
+  );
+
   function resetResult() {
     setResultReady(false);
     setResultUrl(null);
     setResultType(null);
     setShowResult(false);
+    setCloudinaryPublicId(null);
+    setCloudinaryResourceType(null);
+  }
+
+  function resetFaceDetectionState() {
+    setDetectedFaces([]);
+    setSelectedFaceIndex(null);
+    setPreviewUri(null);
+    setPreviewWidth(0);
+    setPreviewHeight(0);
+    setPreviewOriginalWidth(0);
+    setPreviewOriginalHeight(0);
   }
 
   function cleanError(error: any) {
@@ -324,6 +189,197 @@ async function loadProducts() {
     }
 
     return 'Algo falló conectando con la IA. Prueba otra vez.';
+  }
+
+  function formatDate(dateString?: string) {
+    if (!dateString) return '';
+
+    const date = new Date(dateString);
+    const now = new Date();
+
+    const isToday =
+      date.getDate() === now.getDate() &&
+      date.getMonth() === now.getMonth() &&
+      date.getFullYear() === now.getFullYear();
+
+    const time = date.toLocaleTimeString('es-ES', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    if (isToday) {
+      return `Hoy ${time}`;
+    }
+
+    return (
+      date.toLocaleDateString('es-ES', {
+        day: '2-digit',
+        month: 'short',
+      }) + ` · ${time}`
+    );
+  }
+
+  async function loadPurchaseHistory(userId: string) {
+    try {
+      const purchasesRef = collection(db, 'users', userId, 'purchaseHistory');
+
+      const purchasesQuery = query(purchasesRef, orderBy('createdAt', 'desc'));
+
+      const snapshot = await getDocs(purchasesQuery);
+
+      const purchases = snapshot.docs.map((docItem) => ({
+        id: docItem.id,
+        ...docItem.data(),
+      }));
+
+      setPurchaseHistory(purchases);
+    } catch (error) {
+      console.log('Error cargando historial de compras:', error);
+    }
+  }
+
+  async function loadGenerationHistory(userId: string) {
+    try {
+      const historyRef = collection(db, 'users', userId, 'history');
+
+      const historyQuery = query(historyRef, orderBy('createdAt', 'desc'));
+
+      const snapshot = await getDocs(historyQuery);
+
+      const generations = snapshot.docs.map((docItem) => ({
+        id: docItem.id,
+        ...docItem.data(),
+      }));
+
+      setGenerationHistory(generations);
+    } catch (error) {
+      console.log('Error cargando historial de generaciones:', error);
+    }
+  }
+
+  async function loadProducts() {
+    try {
+      setLoadingProducts(true);
+
+      const offerings = await Purchases.getOfferings();
+
+      if (offerings.current) {
+        setPackages(offerings.current.availablePackages);
+        console.log('RevenueCat packages:', offerings.current.availablePackages);
+      }
+    } catch (error) {
+      console.log('Error cargando productos RevenueCat:', error);
+    } finally {
+      setLoadingProducts(false);
+    }
+  }
+
+  useEffect(() => {
+    Purchases.configure({
+      apiKey: 'test_nKIwwycKEUdOcwnYObDKSjrWMFI',
+    });
+
+    loadProducts();
+
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+
+      if (!currentUser) {
+        setTokens(0);
+        setPurchaseHistory([]);
+        setGenerationHistory([]);
+        return;
+      }
+
+      const userRef = doc(db, 'users', currentUser.uid);
+      const userSnap = await getDoc(userRef);
+
+      if (userSnap.exists()) {
+        const data = userSnap.data();
+        setTokens(data.tokens || 0);
+      }
+
+      await loadPurchaseHistory(currentUser.uid);
+      await loadGenerationHistory(currentUser.uid);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  async function setPreviewSource(uri: string) {
+    setPreviewUri(uri);
+
+    try {
+      Image.getSize(
+        uri,
+        (width, height) => {
+          setPreviewOriginalWidth(width);
+          setPreviewOriginalHeight(height);
+        },
+        () => {
+          setPreviewOriginalWidth(0);
+          setPreviewOriginalHeight(0);
+        }
+      );
+    } catch {
+      setPreviewOriginalWidth(0);
+      setPreviewOriginalHeight(0);
+    }
+  }
+
+  async function detectFaces(fileUri: string) {
+    try {
+      setDetectingFaces(true);
+      setDetectedFaces([]);
+      setSelectedFaceIndex(null);
+
+      const formData = new FormData();
+      formData.append('target', {
+        uri: fileUri,
+        name: 'target.jpg',
+        type: 'image/jpeg',
+      } as any);
+
+      const response = await fetch(`${BACKEND_URL}/detect-faces`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const rawText = await response.text();
+      let data: any = null;
+
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseError) {
+        console.log('Respuesta detect-faces no es JSON:', rawText);
+        throw new Error(
+          'La API de detección no devolvió JSON. Seguramente el backend aún no tiene /detect-faces.'
+        );
+      }
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'No se pudieron detectar caras');
+      }
+
+      setDetectedFaces(data.faces || []);
+
+      if (data.faces?.length > 0) {
+        setSelectedFaceIndex(0);
+      } else {
+        Alert.alert(
+          'Sin caras detectadas',
+          'No se han detectado caras en esta imagen previa.'
+        );
+      }
+    } catch (error: any) {
+      console.log('Error detectando caras:', error);
+      Alert.alert(
+        'Error detectando caras',
+        error?.message || 'No se pudieron detectar caras.'
+      );
+    } finally {
+      setDetectingFaces(false);
+    }
   }
 
   async function pickFace() {
@@ -347,157 +403,161 @@ async function loadProducts() {
   }
 
   async function pickTarget() {
-  try {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-    if (!permission.granted) {
-      Alert.alert('Permiso necesario', 'Necesitamos acceso a tus archivos.');
-      return;
+      if (!permission.granted) {
+        Alert.alert('Permiso necesario', 'Necesitamos acceso a tus archivos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: mode === 'image' ? ['images'] : ['videos'],
+        allowsEditing: false,
+        quality: 0.7,
+        videoMaxDuration: 60,
+        videoExportPreset: ImagePicker.VideoExportPreset.Passthrough,
+        preferredAssetRepresentationMode:
+          ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current,
+      });
+
+      if (result.canceled) return;
+
+      const asset = result.assets[0];
+
+      resetResult();
+      resetFaceDetectionState();
+
+      if (mode === 'image') {
+        setTargetFile(asset.uri);
+        setTargetType('image');
+        setTargetDuration(0);
+
+        await setPreviewSource(asset.uri);
+        await detectFaces(asset.uri);
+
+        Alert.alert('Imagen añadida ✅', 'Foto destino seleccionada.');
+        return;
+      }
+
+      const isVideo =
+        asset.type === 'video' ||
+        asset.mimeType?.includes('video') ||
+        asset.fileName?.match(/\.(mp4|mov|m4v)$/i);
+
+      if (!isVideo) {
+        Alert.alert('Solo vídeo', 'En modo vídeo necesitas seleccionar un vídeo.');
+        return;
+      }
+
+      const durationSeconds = Math.ceil((asset.duration || 10000) / 1000);
+
+      if (durationSeconds > 60) {
+        Alert.alert(
+          'Vídeo demasiado largo',
+          'De momento el máximo permitido es 60 segundos.'
+        );
+        return;
+      }
+
+      setTargetFile(asset.uri);
+      setTargetType('video');
+      setTargetDuration(durationSeconds || 10);
+
+      try {
+        const { uri: thumbnailUri } = await VideoThumbnails.getThumbnailAsync(
+          asset.uri,
+          { time: 1000 }
+        );
+
+        await setPreviewSource(thumbnailUri);
+        await detectFaces(thumbnailUri);
+      } catch (error) {
+        console.log('Error creando thumbnail:', error);
+        Alert.alert(
+          'Error con el vídeo',
+          'No se pudo generar la previsualización del vídeo.'
+        );
+        return;
+      }
+
+      Alert.alert(
+        'Vídeo añadido ✅',
+        `Duración aproximada: ${durationSeconds || 10}s · Coste: ${getVideoTokens(
+          durationSeconds || 10
+        )} tokens`
+      );
+    } catch (error) {
+      console.log('Error seleccionando destino:', error);
+
+      if (mode === 'video') {
+        Alert.alert(
+          'Error con la galería',
+          'iOS no ha podido entregar este vídeo desde Fotos. Puedes intentarlo desde Archivos como alternativa.',
+          [
+            {
+              text: 'Cancelar',
+              style: 'cancel',
+            },
+            {
+              text: 'Abrir Archivos',
+              onPress: pickTargetVideoFromFiles,
+            },
+          ]
+        );
+        return;
+      }
+
+      Alert.alert('Error', 'No se ha podido cargar el archivo seleccionado.');
     }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-  mediaTypes:
-    mode === 'image'
-      ? ['images']
-      : ['videos'],
-  allowsEditing: false,
-  quality: 0.7,
-  videoMaxDuration: 60,
-  videoExportPreset: ImagePicker.VideoExportPreset.Passthrough,
-  preferredAssetRepresentationMode:
-    ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current,
-});
-
-    if (result.canceled) return;
-
-    const asset = result.assets[0];
-
-if (mode === 'image') {
-  setTargetFile(asset.uri);
-  setTargetType('image');
-  setTargetDuration(0);
-  setPreviewUri(asset.uri);
-  resetResult();
-
-  await detectFaces(asset.uri);
-
-  Alert.alert('Imagen añadida ✅', 'Foto destino seleccionada.');
-  return;
-}
-
-// MODO VIDEO
-const isVideo =
-  asset.type === 'video' ||
-  asset.mimeType?.includes('video') ||
-  asset.fileName?.match(/\.(mp4|mov|m4v)$/i);
-
-if (!isVideo) {
-  Alert.alert('Solo vídeo', 'En modo vídeo necesitas seleccionar un vídeo.');
-  return;
-}
-
-const durationSeconds = Math.ceil((asset.duration || 10000) / 1000);
-
-if (durationSeconds > 60) {
-  Alert.alert(
-    'Vídeo demasiado largo',
-    'De momento el máximo permitido es 60 segundos.'
-  );
-  return;
-}
-
-setTargetFile(asset.uri);
-setTargetType('video');
-setTargetDuration(durationSeconds || 10);
-resetResult();
-
-try {
-  const { uri: thumbnailUri } = await VideoThumbnails.getThumbnailAsync(
-    asset.uri,
-    {
-      time: 1000,
-    }
-  );
-
-  setPreviewUri(thumbnailUri);
-  await detectFaces(thumbnailUri);
-} catch (error) {
-  console.log('Error creando thumbnail:', error);
-  Alert.alert(
-    'Error con el vídeo',
-    'No se pudo generar la previsualización del vídeo.'
-  );
-  return;
-}
-
-Alert.alert(
-  'Vídeo añadido ✅',
-  `Duración aproximada: ${durationSeconds || 10}s · Coste: ${getVideoTokens(
-    durationSeconds || 10
-  )} tokens`
-);
-  } catch (error) {
-  console.log('Error seleccionando destino:', error);
-
-  if (mode === 'video') {
-    Alert.alert(
-      'Error con la galería',
-      'iOS no ha podido entregar este vídeo desde Fotos. Puedes intentarlo desde Archivos como alternativa.',
-      [
-        {
-          text: 'Cancelar',
-          style: 'cancel',
-        },
-        {
-          text: 'Abrir Archivos',
-          onPress: pickTargetVideoFromFiles,
-        },
-      ]
-    );
-
-    return;
   }
 
-  Alert.alert(
-    'Error',
-    'No se ha podido cargar el archivo seleccionado.'
-  );
-}
-}
-async function pickTargetVideoFromFiles() {
-  try {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: 'video/*',
-      copyToCacheDirectory: true,
-    });
+  async function pickTargetVideoFromFiles() {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'video/*',
+        copyToCacheDirectory: true,
+      });
 
-    if (result.canceled) return;
+      if (result.canceled) return;
 
-    const asset = result.assets[0];
+      const asset = result.assets[0];
 
-    if (!asset?.uri) {
-      Alert.alert('Error', 'No se ha podido leer el vídeo seleccionado.');
-      return;
+      if (!asset?.uri) {
+        Alert.alert('Error', 'No se ha podido leer el vídeo seleccionado.');
+        return;
+      }
+
+      resetResult();
+      resetFaceDetectionState();
+
+      setTargetFile(asset.uri);
+      setTargetType('video');
+      setTargetDuration(10);
+
+      try {
+        const { uri: thumbnailUri } = await VideoThumbnails.getThumbnailAsync(
+          asset.uri,
+          { time: 1000 }
+        );
+
+        await setPreviewSource(thumbnailUri);
+        await detectFaces(thumbnailUri);
+      } catch (error) {
+        console.log('Error creando thumbnail desde Archivos:', error);
+      }
+
+      Alert.alert(
+        'Vídeo añadido ✅',
+        `Vídeo destino seleccionado. Coste aproximado: ${getVideoTokens(10)} tokens`
+      );
+    } catch (error) {
+      console.log('Error seleccionando vídeo desde archivos:', error);
+
+      Alert.alert('Error', 'No se ha podido cargar el vídeo desde Archivos.');
     }
-
-    setTargetFile(asset.uri);
-    setTargetType('video');
-    setTargetDuration(5);
-    resetResult();
-
-    Alert.alert(
-      'Vídeo añadido ✅',
-      `Vídeo destino seleccionado. Coste aproximado: ${getVideoTokens(5)} tokens`
-    );
-  } catch (error) {
-    console.log('Error seleccionando vídeo desde archivos:', error);
-
-    Alert.alert(
-      'Error',
-      'No se ha podido cargar el vídeo desde Archivos.'
-    );
   }
-}
+
   async function convertToJpg(uri: string) {
     const result = await ImageManipulator.manipulateAsync(uri, [], {
       compress: 0.9,
@@ -526,64 +586,65 @@ async function pickTargetVideoFromFiles() {
       Alert.alert('Error', error?.message || 'Error autenticando.');
     }
   }
+
   async function handleBuyTokenPack(pack: any) {
-  try {
-    if (!user?.uid) {
-      Alert.alert('Inicia sesión', 'Debes iniciar sesión para comprar tokens.');
+    try {
+      if (!user?.uid) {
+        Alert.alert('Inicia sesión', 'Debes iniciar sesión para comprar tokens.');
+        return;
+      }
+
+      const purchaseMode = USE_REVENUECAT ? 'revenuecat' : 'test';
+      const newTokenBalance = tokens + pack.tokens;
+
+      setTokens(newTokenBalance);
+
+      const userRef = doc(db, 'users', user.uid);
+
+      await updateDoc(userRef, {
+        tokens: newTokenBalance,
+      });
+
+      await addDoc(collection(db, 'users', user.uid, 'purchaseHistory'), {
+        packId: pack.id,
+        revenueCatId: pack.revenueCatId,
+        packTitle: pack.title,
+        tokensAdded: pack.tokens,
+        price: pack.price,
+        mode: purchaseMode,
+        createdAt: new Date().toISOString(),
+      });
+
+      await loadPurchaseHistory(user.uid);
+
+      Alert.alert('Tokens añadidos ✅', `Has añadido ${pack.tokens} tokens.`);
+
+      console.log('Pack comprado y guardado:', pack.id, pack.tokens);
+    } catch (error) {
+      console.log('Error comprando pack:', error);
+      Alert.alert(
+        'Error',
+        'No se han podido añadir los tokens. Inténtalo de nuevo.'
+      );
+    }
+  }
+
+  async function generateSwap() {
+    if (isGenerating) return;
+
+    setIsGenerating(true);
+    setGenerating(true);
+
+    if (!user) {
+      Alert.alert(
+        'Inicia sesión',
+        'Necesitas iniciar sesión para generar imágenes o vídeos.'
+      );
+      setIsGenerating(false);
+      setGenerating(false);
       return;
     }
 
-    // MODO PRUEBA:
-    // Cuando Apple Developer + RevenueCat estén listos, aquí irá la compra real.
-    const purchaseMode = USE_REVENUECAT ? 'revenuecat' : 'test';
-
-    const newTokenBalance = tokens + pack.tokens;
-
-    setTokens(newTokenBalance);
-
-    const userRef = doc(db, 'users', user.uid);
-
-    await updateDoc(userRef, {
-      tokens: newTokenBalance,
-    });
-
-    await addDoc(collection(db, 'users', user.uid, 'purchaseHistory'), {
-      packId: pack.id,
-      revenueCatId: pack.revenueCatId,
-      packTitle: pack.title,
-      tokensAdded: pack.tokens,
-      price: pack.price,
-      mode: purchaseMode,
-      createdAt: new Date().toISOString(),
-    });
-
-await loadPurchaseHistory(user.uid);
-
-    Alert.alert(
-      'Tokens añadidos ✅',
-      `Has añadido ${pack.tokens} tokens.`
-    );
-
-    console.log('Pack comprado y guardado:', pack.id, pack.tokens);
-  } catch (error) {
-    console.log('Error comprando pack:', error);
-    Alert.alert(
-      'Error',
-      'No se han podido añadir los tokens. Inténtalo de nuevo.'
-    );
-  }
-}
-  async function generateSwap() {
-    if (isGenerating) return;
-  setIsGenerating(true);
-  setGenerating(true);
-    if (!user) {
-  Alert.alert(
-    'Inicia sesión',
-    'Necesitas iniciar sesión para generar imágenes o vídeos.'
-  );
-  return;
-}
     if (!faceImage || !targetFile) {
       Alert.alert(
         'Faltan archivos',
@@ -591,42 +652,47 @@ await loadPurchaseHistory(user.uid);
           ? 'Sube primero una cara y una foto destino.'
           : 'Sube primero una cara y un vídeo destino.'
       );
+      setIsGenerating(false);
+      setGenerating(false);
       return;
     }
 
     if (tokens < currentCost) {
-  Alert.alert(
-    'Tokens insuficientes',
-    `Necesitas ${currentCost} tokens para esta generación.`,
-    [
-      {
-        text: 'Comprar tokens',
-        onPress: () => {
-          scrollRef.current?.scrollTo({
-            y: 650,
-            animated: true,
-          });
-        },
-      },
-      {
-        text: 'Cancelar',
-        style: 'cancel',
-      },
-    ]
-  );
-  return;
-}
-if (detectedFaces.length > 0 && selectedFaceIndex === null) {
-  Alert.alert(
-    'Selecciona una cara',
-    'Toca primero la cara que quieres cambiar.'
-  );
-  setIsGenerating(false);
-  setGenerating(false);
-  return;
-}
+      Alert.alert(
+        'Tokens insuficientes',
+        `Necesitas ${currentCost} tokens para esta generación.`,
+        [
+          {
+            text: 'Comprar tokens',
+            onPress: () => {
+              scrollRef.current?.scrollTo({
+                y: 650,
+                animated: true,
+              });
+            },
+          },
+          {
+            text: 'Cancelar',
+            style: 'cancel',
+          },
+        ]
+      );
+      setIsGenerating(false);
+      setGenerating(false);
+      return;
+    }
+
+    if (detectedFaces.length > 0 && selectedFaceIndex === null) {
+      Alert.alert(
+        'Selecciona una cara',
+        'Toca primero la cara que quieres cambiar.'
+      );
+      setIsGenerating(false);
+      setGenerating(false);
+      return;
+    }
+
     try {
-      setGenerating(true);
       resetResult();
       setProgress(10);
       setStep('Subiendo archivos...');
@@ -654,7 +720,6 @@ if (detectedFaces.length > 0 && selectedFaceIndex === null) {
       } as any);
 
       formData.append('targetFaceIndex', String(selectedFaceIndex ?? 0));
-
       formData.append('type', mode);
 
       setProgress(35);
@@ -681,8 +746,7 @@ if (detectedFaces.length > 0 && selectedFaceIndex === null) {
       setCloudinaryPublicId(data.cloudinaryPublicId || null);
       setCloudinaryResourceType(mode === 'image' ? 'image' : 'video');
 
-      const finalUrl =
-        data.videoUrl || data.imageUrl || data.resultUrl || data.url;
+      const finalUrl = data.videoUrl || data.imageUrl || data.resultUrl || data.url;
 
       if (!data.success || !finalUrl) {
         throw new Error(JSON.stringify(data));
@@ -692,29 +756,28 @@ if (detectedFaces.length > 0 && selectedFaceIndex === null) {
       setResultType(mode);
 
       setProgress(100);
-      setGenerating(false);
       setResultReady(true);
+
       const newTokenBalance = tokens - currentCost;
+      setTokens(newTokenBalance);
 
-setTokens(newTokenBalance);
+      if (user) {
+        const userRef = doc(db, 'users', user.uid);
 
-if (user) {
-  const userRef = doc(db, 'users', user.uid);
+        await updateDoc(userRef, {
+          tokens: newTokenBalance,
+        });
 
-  await updateDoc(userRef, {
-    tokens: newTokenBalance,
-  });
-}
+        await addDoc(collection(db, 'users', user.uid, 'history'), {
+          type: mode,
+          cost: currentCost,
+          resultUrl: finalUrl,
+          createdAt: new Date().toISOString(),
+        });
 
-if (user) {
-  await addDoc(collection(db, 'users', user.uid, 'history'), {
-    type: mode,
-    cost: currentCost,
-    resultUrl: finalUrl,
-    createdAt: new Date().toISOString(),
-  });
-  await loadPurchaseHistory(user.uid);
-}
+        await loadGenerationHistory(user.uid);
+      }
+
       Alert.alert(
         'Resultado listo 🔥',
         mode === 'image'
@@ -722,12 +785,12 @@ if (user) {
           : 'Vídeo generado correctamente.'
       );
     } catch (error) {
-  console.log(error);
-  Alert.alert('Error', cleanError(error));
-} finally {
-  setIsGenerating(false);
-  setGenerating(false);
-}
+      console.log(error);
+      Alert.alert('Error', cleanError(error));
+    } finally {
+      setIsGenerating(false);
+      setGenerating(false);
+    }
   }
 
   async function shareResult() {
@@ -750,12 +813,17 @@ if (user) {
       }
 
       const extension =
-        fileToShare.includes('.mp4') || fileToShare.includes('.mov')
-          ? 'mp4'
-          : 'jpg';
+        fileToShare.includes('.mp4') || fileToShare.includes('.mov') ? 'mp4' : 'jpg';
 
-      const localUri =
-        FileSystem.documentDirectory + `reelswap-${Date.now()}.${extension}`;
+      const baseDirectory =
+        FileSystem.documentDirectory || FileSystem.cacheDirectory;
+
+      if (!baseDirectory) {
+        Alert.alert('Error', 'No se encontró almacenamiento local.');
+        return;
+      }
+
+      const localUri = baseDirectory + `reelswap-${Date.now()}.${extension}`;
 
       setStep('Descargando resultado...');
       setGenerating(true);
@@ -767,7 +835,7 @@ if (user) {
       try {
         await MediaLibrary.createAlbumAsync('ReelSwap AI', asset, false);
       } catch {
-        // Si el álbum ya existe, no pasa nada.
+        // Si ya existe, no pasa nada
       }
 
       setGenerating(false);
@@ -802,292 +870,439 @@ if (user) {
     }
   }
 
+  function getFaceOverlayStyle(face: DetectedFace) {
+    if (
+      !previewWidth ||
+      !previewHeight ||
+      !previewOriginalWidth ||
+      !previewOriginalHeight
+    ) {
+      return {
+        left: 0,
+        top: 0,
+        width: 0,
+        height: 0,
+      };
+    }
+
+    const containerRatio = previewWidth / previewHeight;
+    const imageRatio = previewOriginalWidth / previewOriginalHeight;
+
+    let displayedWidth = 0;
+    let displayedHeight = 0;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    if (imageRatio > containerRatio) {
+      displayedWidth = previewWidth;
+      displayedHeight = previewWidth / imageRatio;
+      offsetY = (previewHeight - displayedHeight) / 2;
+    } else {
+      displayedHeight = previewHeight;
+      displayedWidth = previewHeight * imageRatio;
+      offsetX = (previewWidth - displayedWidth) / 2;
+    }
+
+    return {
+      left: offsetX + face.x * displayedWidth,
+      top: offsetY + face.y * displayedHeight,
+      width: face.width * displayedWidth,
+      height: face.height * displayedHeight,
+    };
+  }
+
   return (
-    <ScrollView
-  ref={scrollRef}
-  style={styles.container}
-  contentContainerStyle={styles.content}
->
-      {!user && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>
-            {isLogin ? 'Iniciar sesión' : 'Crear cuenta'}
-          </Text>
-
-          <TextInput
-            placeholder="Email"
-            placeholderTextColor="#888"
-            value={email}
-            onChangeText={setEmail}
-            style={styles.input}
-            autoCapitalize="none"
-          />
-
-          <TextInput
-            placeholder="Contraseña"
-            placeholderTextColor="#888"
-            value={password}
-            onChangeText={setPassword}
-            style={styles.input}
-            secureTextEntry
-          />
-
-          <TouchableOpacity style={styles.generateButton} onPress={handleAuth}>
-            <Text style={styles.generateButtonText}>
-              {isLogin ? 'Entrar' : 'Crear cuenta'}
+    <>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.container}
+        contentContainerStyle={styles.content}
+      >
+        {!user && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>
+              {isLogin ? 'Iniciar sesión' : 'Crear cuenta'}
             </Text>
-          </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={() => setIsLogin(!isLogin)}
-            style={{ marginTop: 14 }}
-          >
-            <Text style={styles.switchAuthText}>
-              {isLogin
-                ? '¿No tienes cuenta? Crear cuenta'
-                : '¿Ya tienes cuenta? Iniciar sesión'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
+            <TextInput
+              placeholder="Email"
+              placeholderTextColor="#888"
+              value={email}
+              onChangeText={setEmail}
+              style={styles.input}
+              autoCapitalize="none"
+            />
 
-      {user && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Cuenta</Text>
+            <TextInput
+              placeholder="Contraseña"
+              placeholderTextColor="#888"
+              value={password}
+              onChangeText={setPassword}
+              style={styles.input}
+              secureTextEntry
+            />
 
-          <Text style={styles.cardText}>
-            Sesión iniciada como {user.email}
-          </Text>
-
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={async () => {
-              await signOut(auth);
-              Alert.alert('Sesión cerrada');
-            }}
-          >
-            <Text style={styles.secondaryButtonText}>Cerrar sesión</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      <View style={styles.hero}>
-        <View style={styles.topRow}>
-          <Text style={styles.badge}>AI FACE SWAP</Text>
-
-          <View>
-  <Text style={styles.tokens}>⚡ {tokens} tokens</Text>
-</View>
-        </View>
-
-        <Text style={styles.title}>ReelSwap AI</Text>
-
-        {user && (
-          <Text style={styles.userEmail}>
-            Sesión iniciada: {user.email}
-          </Text>
-        )}
-
-        <Text style={styles.subtitle}>
-          Cambia tu rostro en fotos y vídeos con calidad premium.
-        </Text>
-
-        <View style={styles.modeSwitch}>
-          <TouchableOpacity
-            style={[styles.modeButton, mode === 'video' && styles.modeButtonActive]}
-            onPress={() => setMode('video')}
-          >
-            <Text style={[styles.modeText, mode === 'video' && styles.modeTextActive]}>
-              Vídeo
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.modeButton, mode === 'image' && styles.modeButtonActive]}
-            onPress={() => setMode('image')}
-          >
-            <Text style={[styles.modeText, mode === 'image' && styles.modeTextActive]}>
-              Foto
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity style={styles.button} onPress={generateSwap}>
-          <Text style={styles.buttonText}>✨ Crear ahora · {currentCost} tokens</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>1. Tu rostro</Text>
-        <Text style={styles.cardText}>
-          Elige una foto clara de la cara que quieres usar.
-        </Text>
-
-        {faceImage && <Image source={{ uri: faceImage }} style={styles.preview} />}
-
-        <TouchableOpacity style={styles.secondaryButton} onPress={pickFace}>
-          <Text style={styles.secondaryButtonText}>
-            {faceImage ? 'Cambiar rostro' : 'Seleccionar rostro'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>
-          2. {mode === 'image' ? 'Foto destino' : 'Vídeo destino'}
-        </Text>
-
-        <Text style={styles.cardText}>
-          {mode === 'image'
-            ? 'Elige la imagen donde quieres aplicar el rostro. Coste: 2 tokens.'
-            : 'Elige un vídeo de máximo 60 segundos. El coste depende de la duración.'}
-        </Text>
-
-        {targetFile && (mode === 'image' || previewUri) && (
-  <View style={styles.previewWrapper}>
-    <Image
-      source={{
-        uri: mode === 'video' ? previewUri! : previewUri || targetFile,
-      }}
-      style={styles.preview}
-      resizeMode="cover"
-      onLayout={(event) => {
-        const { width, height } = event.nativeEvent.layout;
-        setPreviewWidth(width);
-        setPreviewHeight(height);
-      }}
-    />
-
-    {detectedFaces.map((face, index) => {
-      const isSelected = selectedFaceIndex === index;
-
-      return (
-        <TouchableOpacity
-          key={index}
-          activeOpacity={0.85}
-          onPress={() => setSelectedFaceIndex(index)}
-          style={[
-            styles.faceBox,
-            {
-              left: face.x * previewWidth,
-              top: face.y * previewHeight,
-              width: face.width * previewWidth,
-              height: face.height * previewHeight,
-            },
-            isSelected ? styles.faceBoxSelected : null,
-          ]}
-        >
-          <View style={styles.faceBadge}>
-            <Text style={styles.faceBadgeText}>Cara {index + 1}</Text>
-          </View>
-        </TouchableOpacity>
-      );
-    })}
-  </View>
-)}
-
-        {mode === 'video' && targetFile && (
-          <Text style={styles.costText}>
-            Duración: {targetDuration}s · Coste: {currentCost} tokens
-          </Text>
-        )}
-
-        <TouchableOpacity style={styles.secondaryButton} onPress={pickTarget}>
-          <Text style={styles.secondaryButtonText}>
-            {targetFile ? 'Cambiar destino' : 'Seleccionar destino'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <TokenPacks
-  packs={TOKEN_PACKS}
-  styles={styles}
-  onBuyPack={handleBuyTokenPack}
-/>
-
-      <GenerateCard
-  mode={mode}
-  currentCost={currentCost}
-  styles={styles}
-  onGenerate={generateSwap}
-  generating={generating}
-/>
-
-      {generating && (
-        <View style={styles.loaderCard}>
-          <Text style={styles.loaderIcon}>✨</Text>
-          <Text style={styles.resultTitle}>{step}</Text>
-
-          <Text style={styles.progressText}>{Math.round(progress)}% completado</Text>
-
-          <View style={styles.progressBar}>
-            <View style={[styles.progressFill, { width: `${progress}%` }]} />
-          </View>
-
-          <Text style={styles.cardText}>
-            La IA está generando el resultado. No cierres la app.
-          </Text>
-        </View>
-      )}
-
-      {resultReady && resultUrl && (
-        <View style={styles.resultCard}>
-          <Text style={styles.resultTitle}>Resultado listo 🎉</Text>
-
-          <Text style={styles.cardText}>
-            Tu {resultType === 'image' ? 'imagen' : 'vídeo'} ya está preparado.
-          </Text>
-
-          <TouchableOpacity
-            style={styles.resultPreviewCard}
-            onPress={() => setShowResult(true)}
-          >
-            {resultType === 'image' ? (
-              <Image source={{ uri: resultUrl }} style={styles.resultImagePreview} />
-            ) : (
-              <>
-                <Text style={styles.resultPlayIcon}>▶</Text>
-                <Text style={styles.resultPreviewTitle}>Vídeo generado</Text>
-                <Text style={styles.resultPreviewSubtitle}>Toca para verlo</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          <View style={styles.resultActions}>
-            <TouchableOpacity style={styles.resultActionButton} onPress={shareResult}>
-              <Text style={styles.resultActionText}>Compartir</Text>
+            <TouchableOpacity
+              style={styles.generateButton}
+              onPress={handleAuth}
+            >
+              <Text style={styles.generateButtonText}>
+                {isLogin ? 'Entrar' : 'Crear cuenta'}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.resultActionButton}
+              onPress={() => setIsLogin(!isLogin)}
+              style={{ marginTop: 14 }}
+            >
+              <Text style={styles.switchAuthText}>
+                {isLogin
+                  ? '¿No tienes cuenta? Crear cuenta'
+                  : '¿Ya tienes cuenta? Iniciar sesión'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {user && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Cuenta</Text>
+
+            <Text style={styles.cardText}>
+              Sesión iniciada como {user.email}
+            </Text>
+
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={async () => {
+                await signOut(auth);
+                Alert.alert('Sesión cerrada');
+              }}
+            >
+              <Text style={styles.secondaryButtonText}>Cerrar sesión</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <View style={styles.hero}>
+          <View style={styles.topRow}>
+            <Text style={styles.badge}>AI FACE SWAP</Text>
+
+            <View>
+              <Text style={styles.tokens}>⚡ {tokens} tokens</Text>
+            </View>
+          </View>
+
+          <Text style={styles.title}>ReelSwap AI</Text>
+
+          {user && (
+            <Text style={styles.userEmail}>
+              Sesión iniciada: {user.email}
+            </Text>
+          )}
+
+          <Text style={styles.subtitle}>
+            Cambia tu rostro en fotos y vídeos con calidad premium.
+          </Text>
+
+          <View style={styles.modeSwitch}>
+            <TouchableOpacity
+              style={[
+                styles.modeButton,
+                mode === 'video' && styles.modeButtonActive,
+              ]}
               onPress={() => {
-                setFaceImage(null);
+                setMode('video');
                 setTargetFile(null);
                 setTargetType(null);
+                setTargetDuration(10);
+                resetFaceDetectionState();
                 resetResult();
               }}
             >
-              <Text style={styles.resultActionText}>Otro</Text>
+              <Text
+                style={[
+                  styles.modeText,
+                  mode === 'video' && styles.modeTextActive,
+                ]}
+              >
+                Vídeo
+              </Text>
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={[
+                styles.modeButton,
+                mode === 'image' && styles.modeButtonActive,
+              ]}
+              onPress={() => {
+                setMode('image');
+                setTargetFile(null);
+                setTargetType(null);
+                setTargetDuration(0);
+                resetFaceDetectionState();
+                resetResult();
+              }}
+            >
+              <Text
+                style={[
+                  styles.modeText,
+                  mode === 'image' && styles.modeTextActive,
+                ]}
+              >
+                Foto
+              </Text>
+            </TouchableOpacity>
           </View>
-        </View>
-      )}
 
-      <GenerationHistory
-  generations={generationHistory}
-  styles={styles}
-  formatDate={formatDate}
-  onOpenPreview={(url, type) => {
-    setPreviewUrl(url);
-    setPreviewType(type);
-  }}
-/>
-<PurchaseHistory
-  purchases={purchaseHistory}
-  styles={styles}
-  formatDate={formatDate}
-/>
+          <TouchableOpacity style={styles.button} onPress={generateSwap}>
+            <Text style={styles.buttonText}>
+              ✨ Crear ahora · {currentCost} tokens
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>1. Tu rostro</Text>
+          <Text style={styles.cardText}>
+            Elige una foto clara de la cara que quieres usar.
+          </Text>
+
+          {faceImage && (
+            <Image source={{ uri: faceImage }} style={styles.preview} />
+          )}
+
+          <TouchableOpacity style={styles.secondaryButton} onPress={pickFace}>
+            <Text style={styles.secondaryButtonText}>
+              {faceImage ? 'Cambiar rostro' : 'Seleccionar rostro'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>
+            2. {mode === 'image' ? 'Foto destino' : 'Vídeo destino'}
+          </Text>
+
+          <Text style={styles.cardText}>
+            {mode === 'image'
+              ? 'Elige la imagen donde quieres aplicar el rostro. Coste: 2 tokens.'
+              : 'Elige un vídeo de máximo 60 segundos. El coste depende de la duración.'}
+          </Text>
+
+          {targetFile && targetType === 'image' && (
+            <Image source={{ uri: targetFile }} style={styles.preview} />
+          )}
+
+          {targetFile && targetType === 'video' && (
+            <View style={styles.videoBox}>
+              <VideoView
+                player={previewPlayer}
+                style={styles.video}
+                allowsFullscreen
+                nativeControls
+                contentFit="contain"
+              />
+            </View>
+          )}
+
+          {mode === 'video' && targetFile && (
+            <Text style={styles.costText}>
+              Duración: {targetDuration}s · Coste: {currentCost} tokens
+            </Text>
+          )}
+
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={pickTarget}
+          >
+            <Text style={styles.secondaryButtonText}>
+              {targetFile ? 'Cambiar destino' : 'Seleccionar destino'}
+            </Text>
+          </TouchableOpacity>
+
+          {mode === 'video' && (
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={pickTargetVideoFromFiles}
+            >
+              <Text style={styles.secondaryButtonText}>
+                Elegir vídeo desde Archivos
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {previewUri && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>2.1 Selecciona la cara</Text>
+
+            <Text style={styles.cardText}>
+              Toca la cara de la foto o del vídeo que quieres sustituir.
+            </Text>
+
+            <View
+              style={styles.facePreviewContainer}
+              onLayout={(event) => {
+                setPreviewWidth(event.nativeEvent.layout.width);
+                setPreviewHeight(event.nativeEvent.layout.height);
+              }}
+            >
+              <Image
+                source={{ uri: previewUri }}
+                style={styles.facePreviewImage}
+                resizeMode="contain"
+              />
+
+              {detectedFaces.map((face, index) => {
+                const box = getFaceOverlayStyle(face);
+                const isSelected = selectedFaceIndex === index;
+
+                return (
+                  <TouchableOpacity
+                    key={index}
+                    style={[
+                      styles.faceBox,
+                      {
+                        left: box.left,
+                        top: box.top,
+                        width: box.width,
+                        height: box.height,
+                      },
+                      isSelected ? styles.faceBoxSelected : null,
+                    ]}
+                    onPress={() => setSelectedFaceIndex(index)}
+                  >
+                    <View style={styles.faceBadge}>
+                      <Text style={styles.faceBadgeText}>
+                        Cara {index + 1}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {detectingFaces ? (
+              <Text style={[styles.cardText, { marginTop: 12 }]}>
+                Detectando caras...
+              </Text>
+            ) : detectedFaces.length > 0 ? (
+              <Text style={[styles.cardText, { marginTop: 12 }]}>
+                Cara seleccionada:{' '}
+                {selectedFaceIndex !== null ? selectedFaceIndex + 1 : '-'}
+              </Text>
+            ) : (
+              <Text style={[styles.cardText, { marginTop: 12 }]}>
+                No se han detectado caras todavía.
+              </Text>
+            )}
+          </View>
+        )}
+
+        <TokenPacks
+          packs={TOKEN_PACKS}
+          styles={styles}
+          onBuyPack={handleBuyTokenPack}
+        />
+
+        <GenerateCard
+          mode={mode}
+          currentCost={currentCost}
+          styles={styles}
+          onGenerate={generateSwap}
+          generating={generating}
+        />
+
+        {generating && (
+          <View style={styles.loaderCard}>
+            <Text style={styles.loaderIcon}>✨</Text>
+            <Text style={styles.resultTitle}>{step}</Text>
+
+            <Text style={styles.progressText}>
+              {Math.round(progress)}% completado
+            </Text>
+
+            <View style={styles.progressBar}>
+              <View
+                style={[styles.progressFill, { width: `${progress}%` }]}
+              />
+            </View>
+
+            <Text style={styles.cardText}>
+              La IA está generando el resultado. No cierres la app.
+            </Text>
+          </View>
+        )}
+
+        {resultReady && resultUrl && (
+          <View style={styles.resultCard}>
+            <Text style={styles.resultTitle}>Resultado listo 🎉</Text>
+
+            <Text style={styles.cardText}>
+              Tu {resultType === 'image' ? 'imagen' : 'vídeo'} ya está preparado.
+            </Text>
+
+            <TouchableOpacity
+              style={styles.resultPreviewCard}
+              onPress={() => setShowResult(true)}
+            >
+              {resultType === 'image' ? (
+                <Image
+                  source={{ uri: resultUrl }}
+                  style={styles.resultImagePreview}
+                />
+              ) : (
+                <>
+                  <Text style={styles.resultPlayIcon}>▶</Text>
+                  <Text style={styles.resultPreviewTitle}>Vídeo generado</Text>
+                  <Text style={styles.resultPreviewSubtitle}>Toca para verlo</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <View style={styles.resultActions}>
+              <TouchableOpacity
+                style={styles.resultActionButton}
+                onPress={shareResult}
+              >
+                <Text style={styles.resultActionText}>Compartir</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.resultActionButton}
+                onPress={() => {
+                  setFaceImage(null);
+                  setTargetFile(null);
+                  setTargetType(null);
+                  setTargetDuration(mode === 'image' ? 0 : 10);
+                  resetFaceDetectionState();
+                  resetResult();
+                }}
+              >
+                <Text style={styles.resultActionText}>Otro</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        <GenerationHistory
+          generations={generationHistory}
+          styles={styles}
+          formatDate={formatDate}
+          onOpenPreview={(url, type) => {
+            setPreviewUrl(url);
+            setPreviewType(type);
+          }}
+        />
+
+        <PurchaseHistory
+          purchases={purchaseHistory}
+          styles={styles}
+          formatDate={formatDate}
+        />
+      </ScrollView>
+
       <Modal visible={showResult} animationType="slide">
         <View style={styles.fullscreenOverlay}>
           <TouchableOpacity
@@ -1120,7 +1335,39 @@ if (user) {
           </TouchableOpacity>
         </View>
       </Modal>
-    </ScrollView>
+
+      <Modal visible={!!previewUrl} animationType="slide" transparent={false}>
+        <View style={styles.fullscreenOverlay}>
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={() => {
+              setPreviewUrl(null);
+              setPreviewType(null);
+            }}
+          >
+            <Text style={styles.closeButtonText}>✕</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.fullscreenTitle}>Vista previa</Text>
+
+          <View style={styles.fullscreenVideoBox}>
+            {previewType === 'image' && previewUrl ? (
+              <Image source={{ uri: previewUrl }} style={styles.fullscreenImage} />
+            ) : previewType === 'video' && previewUrl ? (
+              <VideoView
+                player={historyPreviewPlayer}
+                style={styles.fullscreenVideo}
+                allowsFullscreen
+                nativeControls
+                contentFit="contain"
+              />
+            ) : (
+              <Text style={styles.fakeResultText}>No hay vista previa</Text>
+            )}
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -1166,35 +1413,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  faceSelectorRow: {
-  flexDirection: 'row',
-  gap: 10,
-  marginTop: 14,
-},
-
-faceSelectorButton: {
-  flex: 1,
-  paddingVertical: 12,
-  borderRadius: 14,
-  backgroundColor: '#1A1A2C',
-  alignItems: 'center',
-  borderWidth: 1,
-  borderColor: '#2A2A3C',
-},
-
-faceSelectorButtonActive: {
-  borderColor: '#8B5CF6',
-  backgroundColor: '#2D1F55',
-},
-
-faceSelectorText: {
-  color: '#B8B8C8',
-  fontWeight: '800',
-},
-
-faceSelectorTextActive: {
-  color: '#FFFFFF',
-},
   badge: {
     color: '#A78BFA',
     fontWeight: '900',
@@ -1295,7 +1513,7 @@ faceSelectorTextActive: {
     fontSize: 16,
   },
   generateButtonDisabled: {
-  opacity: 0.55,
+    opacity: 0.55,
   },
   preview: {
     width: '100%',
@@ -1490,24 +1708,22 @@ faceSelectorTextActive: {
     resizeMode: 'contain',
   },
   historyThumbnail: {
-  width: 52,
-  height: 52,
-  borderRadius: 14,
-  backgroundColor: '#111',
-},
-
-historyVideoThumbnail: {
-  width: 52,
-  height: 52,
-  borderRadius: 14,
-  backgroundColor: '#1A1A2C',
-  alignItems: 'center',
-  justifyContent: 'center',
-},
-
-historyVideoIcon: {
-  fontSize: 24,
-},
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: '#111',
+  },
+  historyVideoThumbnail: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: '#1A1A2C',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  historyVideoIcon: {
+    fontSize: 24,
+  },
   historyItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1558,5 +1774,43 @@ historyVideoIcon: {
     color: '#111',
     fontWeight: '900',
     fontSize: 12,
+  },
+  facePreviewContainer: {
+    marginTop: 16,
+    width: '100%',
+    height: 320,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+    position: 'relative',
+  },
+  facePreviewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  faceBox: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderColor: '#FACC15',
+    backgroundColor: 'rgba(250, 204, 21, 0.12)',
+    borderRadius: 12,
+  },
+  faceBoxSelected: {
+    borderColor: '#8B5CF6',
+    backgroundColor: 'rgba(139,92,246,0.22)',
+  },
+  faceBadge: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  faceBadgeText: {
+    color: 'white',
+    fontSize: 11,
+    fontWeight: '900',
   },
 });

@@ -75,74 +75,79 @@ async function deleteFromCloudinary(publicId, resourceType) {
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'ReelSwapAI backend funcionando v2 con imageswap',
+    message: 'ReelSwapAI backend funcionando v3 con detect-faces',
   });
 });
-app.post(
-  '/detect-faces',
-  upload.single('target'),
-  async (req, res) => {
-    try {
-      console.log('Nueva petición detect-faces');
 
-      const targetFile = req.file;
+app.post('/detect-faces', upload.single('target'), async (req, res) => {
+  try {
+    console.log('Nueva petición detect-faces');
 
-      if (!targetFile) {
-        return res.status(400).json({
-          success: false,
-          error: 'Falta archivo target',
-        });
-      }
+    const targetFile = req.file;
 
-      const uploadResult = await uploadToCloudinaryWithFaces(
-        targetFile.buffer,
-        'reelswapai/face-detection',
-        `detect-${Date.now()}`
-      );
-
-      const facesRaw = uploadResult.faces || [];
-      const imageWidth = uploadResult.width || 1;
-      const imageHeight = uploadResult.height || 1;
-
-      const faces = facesRaw
-        .map((face, index) => {
-          const [x, y, width, height] = face;
-
-          return {
-            index,
-            x: x / imageWidth,
-            y: y / imageHeight,
-            width: width / imageWidth,
-            height: height / imageHeight,
-            area: width * height,
-          };
-        })
-        .sort((a, b) => b.area - a.area)
-        .map((face, index) => ({
-          index,
-          x: face.x,
-          y: face.y,
-          width: face.width,
-          height: face.height,
-        }));
-
-      await deleteFromCloudinary(uploadResult.public_id, 'image');
-
-      return res.json({
-        success: true,
-        faces,
-      });
-    } catch (error) {
-      console.log('ERROR DETECT FACES:');
-      console.dir(error, { depth: null });
-
-      return res.status(500).json({
+    if (!targetFile) {
+      return res.status(400).json({
         success: false,
-        error: error?.message || error,
+        error: 'Falta archivo target',
       });
     }
+
+    const uploadResult = await uploadToCloudinaryWithFaces(
+      targetFile.buffer,
+      'reelswapai/face-detection',
+      `detect-${Date.now()}`
+    );
+
+    console.log('Cloudinary detect result:', {
+      public_id: uploadResult.public_id,
+      width: uploadResult.width,
+      height: uploadResult.height,
+      faces: uploadResult.faces,
+    });
+
+    const facesRaw = uploadResult.faces || [];
+    const imageWidth = uploadResult.width || 1;
+    const imageHeight = uploadResult.height || 1;
+
+    const faces = facesRaw
+      .map((face, index) => {
+        const [x, y, width, height] = face;
+
+        return {
+          index,
+          x: x / imageWidth,
+          y: y / imageHeight,
+          width: width / imageWidth,
+          height: height / imageHeight,
+          area: width * height,
+        };
+      })
+      .sort((a, b) => b.area - a.area)
+      .map((face, index) => ({
+        index,
+        x: face.x,
+        y: face.y,
+        width: face.width,
+        height: face.height,
+      }));
+
+    await deleteFromCloudinary(uploadResult.public_id, 'image');
+
+    return res.json({
+      success: true,
+      faces,
+    });
+  } catch (error) {
+    console.log('ERROR DETECT FACES:');
+    console.dir(error, { depth: null });
+
+    return res.status(500).json({
+      success: false,
+      error: error?.message || error,
+    });
   }
-);
+});
+
 app.post(
   '/faceswap',
   upload.fields([
@@ -155,6 +160,9 @@ app.post(
 
       const faceFile = req.files?.face?.[0];
       const targetFile = req.files?.target?.[0];
+      const targetFaceIndex = Number(req.body?.targetFaceIndex ?? 0);
+
+      console.log('targetFaceIndex VIDEO:', targetFaceIndex);
 
       if (!faceFile || !targetFile) {
         return res.status(400).json({
@@ -193,6 +201,7 @@ app.post(
             face_selector_order: 'large-small',
             face_selector_age_start: 0,
             face_selector_age_end: 100,
+            target_face_index: targetFaceIndex,
             reference_face_distance: 0.45,
             reference_frame_number: 1,
             base64: false,
@@ -252,6 +261,9 @@ app.post(
 
       const faceFile = req.files?.face?.[0];
       const targetFile = req.files?.target?.[0];
+      const targetFaceIndex = Number(req.body?.targetFaceIndex ?? 0);
+
+      console.log('targetFaceIndex FOTO:', targetFaceIndex);
 
       if (!faceFile || !targetFile) {
         return res.status(400).json({
@@ -289,6 +301,7 @@ app.post(
             face_selector_order: 'large-small',
             face_selector_age_start: 0,
             face_selector_age_end: 100,
+            target_face_index: targetFaceIndex,
             reference_face_distance: 0.6,
             reference_frame_number: 1,
             base64: false,
