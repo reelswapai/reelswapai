@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyCZmeE7reOwgZpHM2VC68IC0ZJjA6jH3pc</string>
+	<key>GCM_SENDER_ID</key>
+	<string>646777059817</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.reelswapai.app</string>
+	<key>PROJECT_ID</key>
+	<string>reelswapai-8e8e8</string>
+	<key>STORAGE_BUCKET</key>
+	<string>reelswapai-8e8e8.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:646777059817:ios:d938c207a01f2b0ce7f378</string>
+</dict>
+</plist>

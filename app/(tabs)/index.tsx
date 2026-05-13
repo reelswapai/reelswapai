@@ -1,10 +1,22 @@
+import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { VideoView, useVideoPlayer } from 'expo-video';
-import { useState } from 'react';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  orderBy,
+  query,
+  updateDoc,
+} from 'firebase/firestore';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -12,9 +24,17 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
+import Purchases from 'react-native-purchases';
+import { loginUser, registerUser } from '../../auth';
+import GenerateCard from '../../components/GenerateCard';
+import GenerationHistory from '../../components/GenerationHistory';
+import PurchaseHistory from '../../components/PurchaseHistory';
+import TokenPacks from '../../components/TokenPacks';
+import { auth, db } from "../../firebaseConfig";
 
 type SwapMode = 'image' | 'video';
 type ResultType = 'image' | 'video';
@@ -31,27 +51,184 @@ function getVideoTokens(seconds: number) {
 
 export default function HomeScreen() {
   const [mode, setMode] = useState<SwapMode>('video');
-
+  const scrollRef = useRef<ScrollView>(null);
   const [faceImage, setFaceImage] = useState<string | null>(null);
   const [targetFile, setTargetFile] = useState<string | null>(null);
   const [targetType, setTargetType] = useState<ResultType | null>(null);
   const [targetDuration, setTargetDuration] = useState<number>(10);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewType, setPreviewType] = useState<'image' | 'video' | null>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLogin, setIsLogin] = useState(true);
+  const [user, setUser] = useState<any>(null);
 
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [resultType, setResultType] = useState<ResultType | null>(null);
-
-  const [tokens, setTokens] = useState(999);
+  const USE_REVENUECAT = false; 
+  const TOKEN_PACKS = [
+  {
+    id: 'tokens_20',
+    revenueCatId: 'tokens_20',
+    title: 'Starter',
+    tokens: 20,
+    price: '4,99 €',
+    badge: null,
+  },
+  {
+    id: 'tokens_55',
+    revenueCatId: 'tokens_55',
+    title: 'Pro',
+    tokens: 55,
+    price: '9,99 €',
+    badge: 'Popular',
+  },
+  {
+    id: 'tokens_120',
+    revenueCatId: 'tokens_120',
+    title: 'Premium',
+    tokens: 120,
+    price: '19,99 €',
+    badge: null,
+  },
+];
+  const [tokens, setTokens] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [resultReady, setResultReady] = useState(false);
   const [step, setStep] = useState('');
   const [progress, setProgress] = useState(0);
-  const [history, setHistory] = useState<string[]>([]);
+  const [generationHistory, setGenerationHistory] = useState<any[]>([]);
+  const [purchaseHistory, setPurchaseHistory] = useState<any[]>([]);
   const [showResult, setShowResult] = useState(false);
-  const [cloudinaryPublicId, setCloudinaryPublicId] = useState<string | null>(null);
+  const [packages, setPackages] = useState<any[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [cloudinaryPublicId, setCloudinaryPublicId] =
+    useState<string | null>(null);
+
   const [cloudinaryResourceType, setCloudinaryResourceType] =
-  useState<'image' | 'video' | null>(null);
+    useState<'image' | 'video' | null>(null);
 
   const currentCost = mode === 'image' ? 2 : getVideoTokens(targetDuration);
+
+function formatDate(dateString?: string) {
+  if (!dateString) return '';
+
+  const date = new Date(dateString);
+  const now = new Date();
+
+  const isToday =
+    date.getDate() === now.getDate() &&
+    date.getMonth() === now.getMonth() &&
+    date.getFullYear() === now.getFullYear();
+
+  const time = date.toLocaleTimeString('es-ES', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  if (isToday) {
+    return `Hoy ${time}`;
+  }
+
+  return date.toLocaleDateString('es-ES', {
+    day: '2-digit',
+    month: 'short',
+  }) + ` · ${time}`;
+}
+async function loadPurchaseHistory(userId: string) {
+  try {
+    const purchasesRef = collection(db, 'users', userId, 'purchaseHistory');
+
+    const purchasesQuery = query(
+      purchasesRef,
+      orderBy('createdAt', 'desc')
+    );
+
+    const snapshot = await getDocs(purchasesQuery);
+
+    const purchases = snapshot.docs.map((docItem) => ({
+      id: docItem.id,
+      ...docItem.data(),
+    }));
+
+    setPurchaseHistory(purchases);
+  } catch (error) {
+    console.log('Error cargando historial de compras:', error);
+  }
+}
+  useEffect(() => {
+  Purchases.configure({
+    apiKey: 'test_nKIwwycKEUdOcwnYObDKSjrWMFI',
+  });
+
+  loadProducts();
+
+  const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    setUser(currentUser);
+
+    if (!currentUser) {
+      setTokens(0);
+      setPurchaseHistory([]);
+       setGenerationHistory([]);
+      return;
+    }
+
+    const userRef = doc(db, 'users', currentUser.uid);
+    const userSnap = await getDoc(userRef);
+
+    if (userSnap.exists()) {
+      const data = userSnap.data();
+      setTokens(data.tokens || 0);
+    }
+    await loadPurchaseHistory(currentUser.uid);
+    await loadGenerationHistory(currentUser.uid);
+  });
+
+  return () => unsubscribe();
+}, []);
+
+async function loadGenerationHistory(userId: string) {
+  try {
+    const historyRef = collection(db, 'users', userId, 'history');
+    
+    const historyQuery = query(
+      historyRef,
+      orderBy('createdAt', 'desc')
+    );
+
+    const snapshot = await getDocs(historyQuery);
+
+    const generations = snapshot.docs.map((docItem) => ({
+      id: docItem.id,
+      ...docItem.data(),
+    }));
+
+    setGenerationHistory(generations);
+  } catch (error) {
+    console.log('Error cargando historial de generaciones:', error);
+  }
+}
+async function loadProducts() {
+  try {
+    setLoadingProducts(true);
+
+    const offerings = await Purchases.getOfferings();
+
+    if (offerings.current) {
+      setPackages(offerings.current.availablePackages);
+      console.log(
+        'RevenueCat packages:',
+        offerings.current.availablePackages
+      );
+    }
+  } catch (error) {
+    console.log('Error cargando productos RevenueCat:', error);
+  } finally {
+    setLoadingProducts(false);
+  }
+}
+
 
   const previewPlayer = useVideoPlayer(
     targetType === 'video' && targetFile ? targetFile : null,
@@ -113,6 +290,7 @@ export default function HomeScreen() {
   }
 
   async function pickTarget() {
+  try {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (!permission.granted) {
@@ -121,17 +299,29 @@ export default function HomeScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes:
-        mode === 'image'
-          ? ImagePicker.MediaTypeOptions.Images
-          : ImagePicker.MediaTypeOptions.Videos,
-      quality: 1,
-      videoMaxDuration: 60,
-    });
+  mediaTypes:
+    mode === 'image'
+      ? ['images']
+      : ['videos'],
+  allowsEditing: false,
+  quality: 0.7,
+  videoMaxDuration: 60,
+  videoExportPreset: ImagePicker.VideoExportPreset.Passthrough,
+  preferredAssetRepresentationMode:
+    ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current,
+});
 
     if (result.canceled) return;
 
     const asset = result.assets[0];
+
+    if (!asset?.uri) {
+      Alert.alert(
+        'Error',
+        'No se ha podido leer el archivo seleccionado. Prueba con otro vídeo.'
+      );
+      return;
+    }
 
     if (mode === 'image') {
       setTargetFile(asset.uri);
@@ -139,16 +329,6 @@ export default function HomeScreen() {
       setTargetDuration(0);
       resetResult();
       Alert.alert('Imagen añadida ✅', 'Foto destino seleccionada.');
-      return;
-    }
-
-    const isVideo =
-      asset.type === 'video' ||
-      asset.uri.toLowerCase().includes('.mov') ||
-      asset.uri.toLowerCase().includes('.mp4');
-
-    if (!isVideo) {
-      Alert.alert('Solo vídeo', 'En modo vídeo necesitas seleccionar un vídeo.');
       return;
     }
 
@@ -173,20 +353,154 @@ export default function HomeScreen() {
         durationSeconds || 10
       )} tokens`
     );
+  } catch (error) {
+  console.log('Error seleccionando destino:', error);
+
+  if (mode === 'video') {
+    Alert.alert(
+      'Error con la galería',
+      'iOS no ha podido entregar este vídeo desde Fotos. Puedes intentarlo desde Archivos como alternativa.',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Abrir Archivos',
+          onPress: pickTargetVideoFromFiles,
+        },
+      ]
+    );
+
+    return;
   }
-async function convertToJpg(uri: string) {
-  const result = await ImageManipulator.manipulateAsync(
-    uri,
-    [],
-    {
+
+  Alert.alert(
+    'Error',
+    'No se ha podido cargar el archivo seleccionado.'
+  );
+}
+}
+async function pickTargetVideoFromFiles() {
+  try {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: 'video/*',
+      copyToCacheDirectory: true,
+    });
+
+    if (result.canceled) return;
+
+    const asset = result.assets[0];
+
+    if (!asset?.uri) {
+      Alert.alert('Error', 'No se ha podido leer el vídeo seleccionado.');
+      return;
+    }
+
+    setTargetFile(asset.uri);
+    setTargetType('video');
+    setTargetDuration(5);
+    resetResult();
+
+    Alert.alert(
+      'Vídeo añadido ✅',
+      `Vídeo destino seleccionado. Coste aproximado: ${getVideoTokens(5)} tokens`
+    );
+  } catch (error) {
+    console.log('Error seleccionando vídeo desde archivos:', error);
+
+    Alert.alert(
+      'Error',
+      'No se ha podido cargar el vídeo desde Archivos.'
+    );
+  }
+}
+  async function convertToJpg(uri: string) {
+    const result = await ImageManipulator.manipulateAsync(uri, [], {
       compress: 0.9,
       format: ImageManipulator.SaveFormat.JPEG,
-    }
-  );
+    });
 
-  return result.uri;
+    return result.uri;
+  }
+
+  async function handleAuth() {
+    try {
+      if (!email || !password) {
+        Alert.alert('Faltan datos', 'Introduce email y contraseña.');
+        return;
+      }
+
+      if (isLogin) {
+        await loginUser(email, password);
+        Alert.alert('Bienvenido 🔥', 'Sesión iniciada correctamente.');
+      } else {
+        await registerUser(email, password);
+        Alert.alert('Cuenta creada 🚀', 'Usuario registrado correctamente.');
+      }
+    } catch (error: any) {
+      console.log(error);
+      Alert.alert('Error', error?.message || 'Error autenticando.');
+    }
+  }
+  async function handleBuyTokenPack(pack: any) {
+  try {
+    if (!user?.uid) {
+      Alert.alert('Inicia sesión', 'Debes iniciar sesión para comprar tokens.');
+      return;
+    }
+
+    // MODO PRUEBA:
+    // Cuando Apple Developer + RevenueCat estén listos, aquí irá la compra real.
+    const purchaseMode = USE_REVENUECAT ? 'revenuecat' : 'test';
+
+    const newTokenBalance = tokens + pack.tokens;
+
+    setTokens(newTokenBalance);
+
+    const userRef = doc(db, 'users', user.uid);
+
+    await updateDoc(userRef, {
+      tokens: newTokenBalance,
+    });
+
+    await addDoc(collection(db, 'users', user.uid, 'purchaseHistory'), {
+      packId: pack.id,
+      revenueCatId: pack.revenueCatId,
+      packTitle: pack.title,
+      tokensAdded: pack.tokens,
+      price: pack.price,
+      mode: purchaseMode,
+      createdAt: new Date().toISOString(),
+    });
+
+    await loadGenerationHistory(user.uid);
+
+    Alert.alert(
+      'Tokens añadidos ✅',
+      `Has añadido ${pack.tokens} tokens.`
+    );
+
+    console.log('Pack comprado y guardado:', pack.id, pack.tokens);
+  } catch (error) {
+    console.log('Error comprando pack:', error);
+    Alert.alert(
+      'Error',
+      'No se han podido añadir los tokens. Inténtalo de nuevo.'
+    );
+  }
 }
   async function generateSwap() {
+    if (isGenerating) return;
+  setIsGenerating(true);
+  setGenerating(true);
+    if (!user) {
+  Alert.alert(
+    'Inicia sesión',
+    'Necesitas iniciar sesión para generar imágenes o vídeos.'
+  );
+  return;
+}
     if (!faceImage || !targetFile) {
       Alert.alert(
         'Faltan archivos',
@@ -198,25 +512,42 @@ async function convertToJpg(uri: string) {
     }
 
     if (tokens < currentCost) {
-      Alert.alert(
-        'Tokens insuficientes',
-        `Necesitas ${currentCost} tokens para generar.`
-      );
-      return;
-    }
+  Alert.alert(
+    'Tokens insuficientes',
+    `Necesitas ${currentCost} tokens para esta generación.`,
+    [
+      {
+        text: 'Comprar tokens',
+        onPress: () => {
+          scrollRef.current?.scrollTo({
+            y: 650,
+            animated: true,
+          });
+        },
+      },
+      {
+        text: 'Cancelar',
+        style: 'cancel',
+      },
+    ]
+  );
+  return;
+}
 
     try {
       setGenerating(true);
       resetResult();
       setProgress(10);
       setStep('Subiendo archivos...');
-let finalFace = faceImage;
-let finalTarget = targetFile;
 
-if (targetType === 'image') {
-  finalFace = await convertToJpg(faceImage);
-  finalTarget = await convertToJpg(targetFile);
-}
+      let finalFace = faceImage;
+      let finalTarget = targetFile;
+
+      if (targetType === 'image') {
+        finalFace = await convertToJpg(faceImage);
+        finalTarget = await convertToJpg(targetFile);
+      }
+
       const formData = new FormData();
 
       formData.append('face', {
@@ -255,15 +586,10 @@ if (targetType === 'image') {
       const data = await response.json();
 
       setCloudinaryPublicId(data.cloudinaryPublicId || null);
+      setCloudinaryResourceType(mode === 'image' ? 'image' : 'video');
 
-setCloudinaryResourceType(
-  data.cloudinaryResourceType || null
-);
       const finalUrl =
-        data.videoUrl ||
-        data.imageUrl ||
-        data.resultUrl ||
-        data.url;
+        data.videoUrl || data.imageUrl || data.resultUrl || data.url;
 
       if (!data.success || !finalUrl) {
         throw new Error(JSON.stringify(data));
@@ -275,13 +601,27 @@ setCloudinaryResourceType(
       setProgress(100);
       setGenerating(false);
       setResultReady(true);
-      setTokens((prev) => prev - currentCost);
+      const newTokenBalance = tokens - currentCost;
 
-      setHistory((prev) => [
-        `${mode === 'image' ? 'Foto' : 'Vídeo'} · ${currentCost} tokens`,
-        ...prev,
-      ]);
+setTokens(newTokenBalance);
 
+if (user) {
+  const userRef = doc(db, 'users', user.uid);
+
+  await updateDoc(userRef, {
+    tokens: newTokenBalance,
+  });
+}
+
+if (user) {
+  await addDoc(collection(db, 'users', user.uid, 'history'), {
+    type: mode,
+    cost: currentCost,
+    resultUrl: finalUrl,
+    createdAt: new Date().toISOString(),
+  });
+  await loadPurchaseHistory(user.uid);
+}
       Alert.alert(
         'Resultado listo 🔥',
         mode === 'image'
@@ -289,117 +629,171 @@ setCloudinaryResourceType(
           : 'Vídeo generado correctamente.'
       );
     } catch (error) {
-      console.log(error);
-      setGenerating(false);
-      Alert.alert('Error', cleanError(error));
-    }
+  console.log(error);
+  Alert.alert('Error', cleanError(error));
+} finally {
+  setIsGenerating(false);
+  setGenerating(false);
+}
   }
 
   async function shareResult() {
-  try {
-    const fileToShare = resultUrl || targetFile;
+    try {
+      const fileToShare = resultUrl || targetFile;
 
-    if (!fileToShare) {
-      Alert.alert('Sin resultado');
-      return;
+      if (!fileToShare) {
+        Alert.alert('Sin resultado');
+        return;
+      }
+
+      const permission = await MediaLibrary.requestPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert(
+          'Permiso requerido',
+          'Necesitamos permiso para guardar archivos.'
+        );
+        return;
+      }
+
+      const extension =
+        fileToShare.includes('.mp4') || fileToShare.includes('.mov')
+          ? 'mp4'
+          : 'jpg';
+
+      const localUri =
+        FileSystem.documentDirectory + `reelswap-${Date.now()}.${extension}`;
+
+      setStep('Descargando resultado...');
+      setGenerating(true);
+
+      const download = await FileSystem.downloadAsync(fileToShare, localUri);
+
+      const asset = await MediaLibrary.createAssetAsync(download.uri);
+
+      try {
+        await MediaLibrary.createAlbumAsync('ReelSwap AI', asset, false);
+      } catch {
+        // Si el álbum ya existe, no pasa nada.
+      }
+
+      setGenerating(false);
+
+      const canShare = await Sharing.isAvailableAsync();
+
+      if (!canShare) {
+        Alert.alert('Guardado', 'Resultado guardado en galería.');
+        return;
+      }
+
+      await Sharing.shareAsync(download.uri);
+
+      if (cloudinaryPublicId && cloudinaryResourceType) {
+        await fetch(`${BACKEND_URL}/delete-cloudinary-result`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            publicId: cloudinaryPublicId,
+            resourceType: cloudinaryResourceType,
+          }),
+        });
+      }
+
+      Alert.alert('Guardado ✅', 'Resultado guardado en galería.');
+    } catch (error) {
+      console.log(error);
+      setGenerating(false);
+      Alert.alert('Error', 'No se pudo guardar el resultado.');
     }
-
-    const permission =
-      await MediaLibrary.requestPermissionsAsync();
-
-    if (!permission.granted) {
-      Alert.alert(
-        'Permiso requerido',
-        'Necesitamos permiso para guardar archivos.'
-      );
-      return;
-    }
-
-    const extension =
-  fileToShare.includes('.mp4') || fileToShare.includes('.mov')
-    ? 'mp4'
-    : 'jpg';
-
-    const localUri =
-      FileSystem.documentDirectory +
-      `reelswap-${Date.now()}.${extension}`;
-
-    setStep('Descargando resultado...');
-    setGenerating(true);
-
-    const download = await FileSystem.downloadAsync(
-      fileToShare,
-      localUri
-    );
-
-    const asset = await MediaLibrary.createAssetAsync(download.uri);
-
-await MediaLibrary.createAlbumAsync(
-  'ReelSwap AI',
-  asset,
-  false
-);
-
-    setGenerating(false);
-
-    const canShare =
-      await Sharing.isAvailableAsync();
-
-    if (!canShare) {
-      Alert.alert(
-        'Guardado',
-        'Resultado guardado en galería.'
-      );
-      return;
-    }
-
-    await Sharing.shareAsync(download.uri);
-if (
-  cloudinaryPublicId &&
-  cloudinaryResourceType
-) {
-  await fetch(
-    'https://reelswapai-production.up.railway.app/delete-cloudinary-result',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        publicId: cloudinaryPublicId,
-        resourceType: cloudinaryResourceType,
-      }),
-    }
-  );
-}
-    Alert.alert(
-      'Guardado ✅',
-      'Resultado guardado en galería.'
-    );
-  } catch (error) {
-    console.log(error);
-
-    setGenerating(false);
-
-    Alert.alert(
-      'Error',
-      'No se pudo guardar el resultado.'
-    );
   }
-}
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+  ref={scrollRef}
+  style={styles.container}
+  contentContainerStyle={styles.content}
+>
+      {!user && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>
+            {isLogin ? 'Iniciar sesión' : 'Crear cuenta'}
+          </Text>
+
+          <TextInput
+            placeholder="Email"
+            placeholderTextColor="#888"
+            value={email}
+            onChangeText={setEmail}
+            style={styles.input}
+            autoCapitalize="none"
+          />
+
+          <TextInput
+            placeholder="Contraseña"
+            placeholderTextColor="#888"
+            value={password}
+            onChangeText={setPassword}
+            style={styles.input}
+            secureTextEntry
+          />
+
+          <TouchableOpacity style={styles.generateButton} onPress={handleAuth}>
+            <Text style={styles.generateButtonText}>
+              {isLogin ? 'Entrar' : 'Crear cuenta'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setIsLogin(!isLogin)}
+            style={{ marginTop: 14 }}
+          >
+            <Text style={styles.switchAuthText}>
+              {isLogin
+                ? '¿No tienes cuenta? Crear cuenta'
+                : '¿Ya tienes cuenta? Iniciar sesión'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {user && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Cuenta</Text>
+
+          <Text style={styles.cardText}>
+            Sesión iniciada como {user.email}
+          </Text>
+
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={async () => {
+              await signOut(auth);
+              Alert.alert('Sesión cerrada');
+            }}
+          >
+            <Text style={styles.secondaryButtonText}>Cerrar sesión</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={styles.hero}>
         <View style={styles.topRow}>
           <Text style={styles.badge}>AI FACE SWAP</Text>
 
-          <TouchableOpacity onPress={() => setTokens(tokens + 50)}>
-            <Text style={styles.tokens}>⚡ {tokens} tokens</Text>
-          </TouchableOpacity>
+          <View>
+  <Text style={styles.tokens}>⚡ {tokens} tokens</Text>
+</View>
         </View>
 
         <Text style={styles.title}>ReelSwap AI</Text>
+
+        {user && (
+          <Text style={styles.userEmail}>
+            Sesión iniciada: {user.email}
+          </Text>
+        )}
 
         <Text style={styles.subtitle}>
           Cambia tu rostro en fotos y vídeos con calidad premium.
@@ -407,44 +801,26 @@ if (
 
         <View style={styles.modeSwitch}>
           <TouchableOpacity
-            style={[
-              styles.modeButton,
-              mode === 'video' && styles.modeButtonActive,
-            ]}
+            style={[styles.modeButton, mode === 'video' && styles.modeButtonActive]}
             onPress={() => setMode('video')}
           >
-            <Text
-              style={[
-                styles.modeText,
-                mode === 'video' && styles.modeTextActive,
-              ]}
-            >
+            <Text style={[styles.modeText, mode === 'video' && styles.modeTextActive]}>
               Vídeo
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[
-              styles.modeButton,
-              mode === 'image' && styles.modeButtonActive,
-            ]}
+            style={[styles.modeButton, mode === 'image' && styles.modeButtonActive]}
             onPress={() => setMode('image')}
           >
-            <Text
-              style={[
-                styles.modeText,
-                mode === 'image' && styles.modeTextActive,
-              ]}
-            >
+            <Text style={[styles.modeText, mode === 'image' && styles.modeTextActive]}>
               Foto
             </Text>
           </TouchableOpacity>
         </View>
 
         <TouchableOpacity style={styles.button} onPress={generateSwap}>
-          <Text style={styles.buttonText}>
-            ✨ Crear ahora · {currentCost} tokens
-          </Text>
+          <Text style={styles.buttonText}>✨ Crear ahora · {currentCost} tokens</Text>
         </TouchableOpacity>
       </View>
 
@@ -503,50 +879,26 @@ if (
         </TouchableOpacity>
       </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Tokens</Text>
+      <TokenPacks
+  packs={TOKEN_PACKS}
+  styles={styles}
+  onBuyPack={handleBuyTokenPack}
+/>
 
-        <View style={styles.tokenGrid}>
-          <View style={styles.tokenPack}>
-            <Text style={styles.packTitle}>Starter</Text>
-            <Text style={styles.packTokens}>20 tokens</Text>
-            <Text style={styles.packPrice}>2,99 €</Text>
-          </View>
-
-          <View style={styles.tokenPackPopular}>
-            <Text style={styles.packBadge}>POPULAR</Text>
-            <Text style={styles.packTitle}>Pro</Text>
-            <Text style={styles.packTokens}>55 tokens</Text>
-            <Text style={styles.packPrice}>6,99 €</Text>
-          </View>
-        </View>
-
-        <Text style={styles.cardText}>
-          Próximamente conectaremos estos packs con RevenueCat.
-        </Text>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>3. Generar</Text>
-        <Text style={styles.cardText}>
-          Esta generación consumirá {currentCost} tokens.
-        </Text>
-
-        <TouchableOpacity style={styles.generateButton} onPress={generateSwap}>
-          <Text style={styles.generateButtonText}>
-            Generar {mode === 'image' ? 'Foto' : 'Vídeo'} · {currentCost} tokens
-          </Text>
-        </TouchableOpacity>
-      </View>
+      <GenerateCard
+  mode={mode}
+  currentCost={currentCost}
+  styles={styles}
+  onGenerate={generateSwap}
+  generating={generating}
+/>
 
       {generating && (
         <View style={styles.loaderCard}>
           <Text style={styles.loaderIcon}>✨</Text>
           <Text style={styles.resultTitle}>{step}</Text>
 
-          <Text style={styles.progressText}>
-            {Math.round(progress)}% completado
-          </Text>
+          <Text style={styles.progressText}>{Math.round(progress)}% completado</Text>
 
           <View style={styles.progressBar}>
             <View style={[styles.progressFill, { width: `${progress}%` }]} />
@@ -598,34 +950,24 @@ if (
               <Text style={styles.resultActionText}>Otro</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.resultActionButtonPremium}
-              onPress={() => setTokens(tokens + 50)}
-            >
-              <Text style={styles.resultActionTextPremium}>+50 tokens</Text>
-            </TouchableOpacity>
           </View>
         </View>
       )}
 
-      {history.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Historial</Text>
-
-          {history.map((item, index) => (
-            <View key={index} style={styles.historyItem}>
-              <Text style={styles.historyIcon}>
-                {item.includes('Foto') ? '🖼️' : '🎬'}
-              </Text>
-              <View>
-                <Text style={styles.historyTitle}>{item}</Text>
-                <Text style={styles.historySubtitle}>Listo para compartir</Text>
-              </View>
-            </View>
-          ))}
-        </View>
-      )}
-
+      <GenerationHistory
+  generations={generationHistory}
+  styles={styles}
+  formatDate={formatDate}
+  onOpenPreview={(url, type) => {
+    setPreviewUrl(url);
+    setPreviewType(type);
+  }}
+/>
+<PurchaseHistory
+  purchases={purchaseHistory}
+  styles={styles}
+  formatDate={formatDate}
+/>
       <Modal visible={showResult} animationType="slide">
         <View style={styles.fullscreenOverlay}>
           <TouchableOpacity
@@ -670,6 +1012,26 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     paddingBottom: 120,
+  },
+  input: {
+    backgroundColor: '#202033',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    color: 'white',
+    marginTop: 14,
+    fontSize: 15,
+  },
+  switchAuthText: {
+    color: '#A78BFA',
+    textAlign: 'center',
+    fontWeight: '700',
+  },
+  userEmail: {
+    color: '#A78BFA',
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: 8,
   },
   hero: {
     backgroundColor: '#11111C',
@@ -782,6 +1144,9 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '900',
     fontSize: 16,
+  },
+  generateButtonDisabled: {
+  opacity: 0.55,
   },
   preview: {
     width: '100%',
@@ -975,6 +1340,25 @@ const styles = StyleSheet.create({
     height: '100%',
     resizeMode: 'contain',
   },
+  historyThumbnail: {
+  width: 52,
+  height: 52,
+  borderRadius: 14,
+  backgroundColor: '#111',
+},
+
+historyVideoThumbnail: {
+  width: 52,
+  height: 52,
+  borderRadius: 14,
+  backgroundColor: '#1A1A2C',
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+
+historyVideoIcon: {
+  fontSize: 24,
+},
   historyItem: {
     flexDirection: 'row',
     alignItems: 'center',

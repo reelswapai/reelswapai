@@ -10,6 +10,7 @@ const app = express();
 const upload = multer();
 
 app.use(cors());
+app.use(express.json());
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -35,6 +36,7 @@ function uploadToCloudinary(buffer, resourceType, folder, filename) {
     stream.end(buffer);
   });
 }
+
 async function deleteFromCloudinary(publicId, resourceType) {
   try {
     if (!publicId) return;
@@ -49,6 +51,7 @@ async function deleteFromCloudinary(publicId, resourceType) {
     console.log('Error borrando Cloudinary:', error);
   }
 }
+
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
@@ -87,7 +90,7 @@ app.post(
         targetFile.buffer,
         'video',
         'reelswapai/targets',
-        `target-${Date.now()}`
+        `target-video-${Date.now()}`
       );
 
       const response = await fetch(
@@ -132,12 +135,15 @@ app.post(
         `result-video-${Date.now()}`
       );
 
+      await deleteFromCloudinary(faceUpload.public_id, 'image');
+      await deleteFromCloudinary(targetUpload.public_id, 'video');
+
       return res.json({
-  success: true,
-  imageUrl: finalUpload.secure_url,
-  cloudinaryPublicId: finalUpload.public_id,
-  cloudinaryResourceType: 'image',
-});
+        success: true,
+        videoUrl: finalUpload.secure_url,
+        cloudinaryPublicId: finalUpload.public_id,
+        cloudinaryResourceType: 'video',
+      });
     } catch (error) {
       console.log('ERROR BACKEND VIDEO FULL:');
       console.dir(error, { depth: null });
@@ -185,24 +191,24 @@ app.post(
       );
 
       const response = await fetch(
-  'https://api.segmind.com/v1/hyperswap-image-faceswap-by-facefusion-labs',
-  {
+        'https://api.segmind.com/v1/hyperswap-image-faceswap-by-facefusion-labs',
+        {
           method: 'POST',
           headers: {
             'x-api-key': process.env.SEGMIND_API_KEY,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-  source_image: faceUpload.secure_url,
-  target_image: targetUpload.secure_url,
-  face_selector_mode: 'reference',
-  face_selector_order: 'large-small',
-  face_selector_age_start: 0,
-  face_selector_age_end: 100,
-  reference_face_distance: 0.6,
-  reference_frame_number: 1,
-  base64: false,
-}),
+            source_image: faceUpload.secure_url,
+            target_image: targetUpload.secure_url,
+            face_selector_mode: 'reference',
+            face_selector_order: 'large-small',
+            face_selector_age_start: 0,
+            face_selector_age_end: 100,
+            reference_face_distance: 0.6,
+            reference_frame_number: 1,
+            base64: false,
+          }),
         }
       );
 
@@ -224,21 +230,16 @@ app.post(
         'reelswapai/results',
         `result-image-${Date.now()}`
       );
-await deleteFromCloudinary(faceUpload.public_id, 'image');
 
-await deleteFromCloudinary(
-  targetUpload.public_id,
-  targetFile.mimetype.includes('video')
-    ? 'video'
-    : 'image'
-);
+      await deleteFromCloudinary(faceUpload.public_id, 'image');
+      await deleteFromCloudinary(targetUpload.public_id, 'image');
 
-return res.json({
-  success: true,
-  videoUrl: finalUpload.secure_url,
-  cloudinaryPublicId: finalUpload.public_id,
-  cloudinaryResourceType: 'video',
-});
+      return res.json({
+        success: true,
+        imageUrl: finalUpload.secure_url,
+        cloudinaryPublicId: finalUpload.public_id,
+        cloudinaryResourceType: 'image',
+      });
     } catch (error) {
       console.log('ERROR BACKEND IMAGE FULL:');
       console.dir(error, { depth: null });
@@ -250,7 +251,8 @@ return res.json({
     }
   }
 );
-app.post('/delete-cloudinary-result', express.json(), async (req, res) => {
+
+app.post('/delete-cloudinary-result', async (req, res) => {
   try {
     const { publicId, resourceType } = req.body;
 
@@ -275,6 +277,7 @@ app.post('/delete-cloudinary-result', express.json(), async (req, res) => {
     });
   }
 });
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, '0.0.0.0', () => {
