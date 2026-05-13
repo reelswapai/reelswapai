@@ -37,6 +37,26 @@ function uploadToCloudinary(buffer, resourceType, folder, filename) {
   });
 }
 
+function uploadToCloudinaryWithFaces(buffer, folder, filename) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        resource_type: 'image',
+        folder,
+        public_id: filename,
+        overwrite: true,
+        faces: true,
+      },
+      (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      }
+    );
+
+    stream.end(buffer);
+  });
+}
+
 async function deleteFromCloudinary(publicId, resourceType) {
   try {
     if (!publicId) return;
@@ -58,7 +78,71 @@ app.get('/', (req, res) => {
     message: 'ReelSwapAI backend funcionando v2 con imageswap',
   });
 });
+app.post(
+  '/detect-faces',
+  upload.single('target'),
+  async (req, res) => {
+    try {
+      console.log('Nueva petición detect-faces');
 
+      const targetFile = req.file;
+
+      if (!targetFile) {
+        return res.status(400).json({
+          success: false,
+          error: 'Falta archivo target',
+        });
+      }
+
+      const uploadResult = await uploadToCloudinaryWithFaces(
+        targetFile.buffer,
+        'reelswapai/face-detection',
+        `detect-${Date.now()}`
+      );
+
+      const facesRaw = uploadResult.faces || [];
+      const imageWidth = uploadResult.width || 1;
+      const imageHeight = uploadResult.height || 1;
+
+      const faces = facesRaw
+        .map((face, index) => {
+          const [x, y, width, height] = face;
+
+          return {
+            index,
+            x: x / imageWidth,
+            y: y / imageHeight,
+            width: width / imageWidth,
+            height: height / imageHeight,
+            area: width * height,
+          };
+        })
+        .sort((a, b) => b.area - a.area)
+        .map((face, index) => ({
+          index,
+          x: face.x,
+          y: face.y,
+          width: face.width,
+          height: face.height,
+        }));
+
+      await deleteFromCloudinary(uploadResult.public_id, 'image');
+
+      return res.json({
+        success: true,
+        faces,
+      });
+    } catch (error) {
+      console.log('ERROR DETECT FACES:');
+      console.dir(error, { depth: null });
+
+      return res.status(500).json({
+        success: false,
+        error: error?.message || error,
+      });
+    }
+  }
+);
 app.post(
   '/faceswap',
   upload.fields([

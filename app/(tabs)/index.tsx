@@ -62,10 +62,24 @@ export default function HomeScreen() {
   const [password, setPassword] = useState('');
   const [isLogin, setIsLogin] = useState(true);
   const [user, setUser] = useState<any>(null);
-
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [resultType, setResultType] = useState<ResultType | null>(null);
-  const USE_REVENUECAT = false; 
+  const USE_REVENUECAT = false;
+  type DetectedFace = {
+  index: number;
+  x: number;      // normalizado 0..1
+  y: number;      // normalizado 0..1
+  width: number;  // normalizado 0..1
+  height: number; // normalizado 0..1
+};
+
+const [detectedFaces, setDetectedFaces] = useState<DetectedFace[]>([]);
+const [selectedFaceIndex, setSelectedFaceIndex] = useState<number | null>(null);
+const [previewUri, setPreviewUri] = useState<string | null>(null);
+const [previewWidth, setPreviewWidth] = useState(0);
+const [previewHeight, setPreviewHeight] = useState(0);
+const [detectingFaces, setDetectingFaces] = useState(false);
+
   const TOKEN_PACKS = [
   {
     id: 'tokens_20',
@@ -110,7 +124,50 @@ export default function HomeScreen() {
     useState<'image' | 'video' | null>(null);
 
   const currentCost = mode === 'image' ? 2 : getVideoTokens(targetDuration);
+async function detectFaces(fileUri: string) {
+  try {
+    setDetectingFaces(true);
+    setDetectedFaces([]);
+    setSelectedFaceIndex(null);
 
+    const formData = new FormData();
+    formData.append('target', {
+      uri: fileUri,
+      name: 'target.jpg',
+      type: 'image/jpeg',
+    } as any);
+
+    const response = await fetch(
+      'https://reelswapai-production.up.railway.app/detect-faces',
+      {
+        method: 'POST',
+        body: formData,
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || 'No se pudieron detectar caras');
+    }
+
+    setDetectedFaces(data.faces || []);
+
+    if (data.faces?.length > 0) {
+      setSelectedFaceIndex(0);
+    } else {
+      Alert.alert(
+        'Sin caras detectadas',
+        'No se han detectado caras en esta imagen previa.'
+      );
+    }
+  } catch (error: any) {
+    console.log('Error detectando caras:', error);
+    Alert.alert('Error', error?.message || 'No se pudieron detectar caras.');
+  } finally {
+    setDetectingFaces(false);
+  }
+}
 function formatDate(dateString?: string) {
   if (!dateString) return '';
 
@@ -315,44 +372,70 @@ async function loadProducts() {
 
     const asset = result.assets[0];
 
-    if (!asset?.uri) {
-      Alert.alert(
-        'Error',
-        'No se ha podido leer el archivo seleccionado. Prueba con otro vídeo.'
-      );
-      return;
+if (mode === 'image') {
+  setTargetFile(asset.uri);
+  setTargetType('image');
+  setTargetDuration(0);
+  setPreviewUri(asset.uri);
+  resetResult();
+
+  await detectFaces(asset.uri);
+
+  Alert.alert('Imagen añadida ✅', 'Foto destino seleccionada.');
+  return;
+}
+
+// MODO VIDEO
+const isVideo =
+  asset.type === 'video' ||
+  asset.mimeType?.includes('video') ||
+  asset.fileName?.match(/\.(mp4|mov|m4v)$/i);
+
+if (!isVideo) {
+  Alert.alert('Solo vídeo', 'En modo vídeo necesitas seleccionar un vídeo.');
+  return;
+}
+
+const durationSeconds = Math.ceil((asset.duration || 10000) / 1000);
+
+if (durationSeconds > 60) {
+  Alert.alert(
+    'Vídeo demasiado largo',
+    'De momento el máximo permitido es 60 segundos.'
+  );
+  return;
+}
+
+setTargetFile(asset.uri);
+setTargetType('video');
+setTargetDuration(durationSeconds || 10);
+resetResult();
+
+try {
+  const { uri: thumbnailUri } = await VideoThumbnails.getThumbnailAsync(
+    asset.uri,
+    {
+      time: 1000,
     }
+  );
 
-    if (mode === 'image') {
-      setTargetFile(asset.uri);
-      setTargetType('image');
-      setTargetDuration(0);
-      resetResult();
-      Alert.alert('Imagen añadida ✅', 'Foto destino seleccionada.');
-      return;
-    }
+  setPreviewUri(thumbnailUri);
+  await detectFaces(thumbnailUri);
+} catch (error) {
+  console.log('Error creando thumbnail:', error);
+  Alert.alert(
+    'Error con el vídeo',
+    'No se pudo generar la previsualización del vídeo.'
+  );
+  return;
+}
 
-    const durationSeconds = Math.ceil((asset.duration || 10000) / 1000);
-
-    if (durationSeconds > 60) {
-      Alert.alert(
-        'Vídeo demasiado largo',
-        'De momento el máximo permitido es 60 segundos.'
-      );
-      return;
-    }
-
-    setTargetFile(asset.uri);
-    setTargetType('video');
-    setTargetDuration(durationSeconds || 10);
-    resetResult();
-
-    Alert.alert(
-      'Vídeo añadido ✅',
-      `Duración aproximada: ${durationSeconds || 10}s · Coste: ${getVideoTokens(
-        durationSeconds || 10
-      )} tokens`
-    );
+Alert.alert(
+  'Vídeo añadido ✅',
+  `Duración aproximada: ${durationSeconds || 10}s · Coste: ${getVideoTokens(
+    durationSeconds || 10
+  )} tokens`
+);
   } catch (error) {
   console.log('Error seleccionando destino:', error);
 
@@ -474,7 +557,7 @@ async function pickTargetVideoFromFiles() {
       createdAt: new Date().toISOString(),
     });
 
-    await loadGenerationHistory(user.uid);
+await loadPurchaseHistory(user.uid);
 
     Alert.alert(
       'Tokens añadidos ✅',
@@ -533,7 +616,15 @@ async function pickTargetVideoFromFiles() {
   );
   return;
 }
-
+if (detectedFaces.length > 0 && selectedFaceIndex === null) {
+  Alert.alert(
+    'Selecciona una cara',
+    'Toca primero la cara que quieres cambiar.'
+  );
+  setIsGenerating(false);
+  setGenerating(false);
+  return;
+}
     try {
       setGenerating(true);
       resetResult();
@@ -561,6 +652,8 @@ async function pickTargetVideoFromFiles() {
         name: mode === 'video' ? 'target.mp4' : 'target.jpg',
         type: mode === 'video' ? 'video/mp4' : 'image/jpeg',
       } as any);
+
+      formData.append('targetFaceIndex', String(selectedFaceIndex ?? 0));
 
       formData.append('type', mode);
 
@@ -850,21 +943,48 @@ if (user) {
             : 'Elige un vídeo de máximo 60 segundos. El coste depende de la duración.'}
         </Text>
 
-        {targetFile && targetType === 'image' && (
-          <Image source={{ uri: targetFile }} style={styles.preview} />
-        )}
+        {targetFile && (mode === 'image' || previewUri) && (
+  <View style={styles.previewWrapper}>
+    <Image
+      source={{
+        uri: mode === 'video' ? previewUri! : previewUri || targetFile,
+      }}
+      style={styles.preview}
+      resizeMode="cover"
+      onLayout={(event) => {
+        const { width, height } = event.nativeEvent.layout;
+        setPreviewWidth(width);
+        setPreviewHeight(height);
+      }}
+    />
 
-        {targetFile && targetType === 'video' && (
-          <View style={styles.videoBox}>
-            <VideoView
-              player={previewPlayer}
-              style={styles.video}
-              allowsFullscreen
-              nativeControls
-              contentFit="contain"
-            />
+    {detectedFaces.map((face, index) => {
+      const isSelected = selectedFaceIndex === index;
+
+      return (
+        <TouchableOpacity
+          key={index}
+          activeOpacity={0.85}
+          onPress={() => setSelectedFaceIndex(index)}
+          style={[
+            styles.faceBox,
+            {
+              left: face.x * previewWidth,
+              top: face.y * previewHeight,
+              width: face.width * previewWidth,
+              height: face.height * previewHeight,
+            },
+            isSelected ? styles.faceBoxSelected : null,
+          ]}
+        >
+          <View style={styles.faceBadge}>
+            <Text style={styles.faceBadgeText}>Cara {index + 1}</Text>
           </View>
-        )}
+        </TouchableOpacity>
+      );
+    })}
+  </View>
+)}
 
         {mode === 'video' && targetFile && (
           <Text style={styles.costText}>
@@ -1046,6 +1166,35 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  faceSelectorRow: {
+  flexDirection: 'row',
+  gap: 10,
+  marginTop: 14,
+},
+
+faceSelectorButton: {
+  flex: 1,
+  paddingVertical: 12,
+  borderRadius: 14,
+  backgroundColor: '#1A1A2C',
+  alignItems: 'center',
+  borderWidth: 1,
+  borderColor: '#2A2A3C',
+},
+
+faceSelectorButtonActive: {
+  borderColor: '#8B5CF6',
+  backgroundColor: '#2D1F55',
+},
+
+faceSelectorText: {
+  color: '#B8B8C8',
+  fontWeight: '800',
+},
+
+faceSelectorTextActive: {
+  color: '#FFFFFF',
+},
   badge: {
     color: '#A78BFA',
     fontWeight: '900',
