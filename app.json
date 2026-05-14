@@ -28,7 +28,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.reelswapai.app",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryUsageDescription": "ReelSwapAI necesita acceso a tus fotos y vídeos para seleccionar el rostro y el archivo destino.",
+        "NSPhotoLibraryAddUsageDescription": "ReelSwapAI necesita permiso para guardar tus imágenes y vídeos generados en la galería."
       }
     },
     "android": {

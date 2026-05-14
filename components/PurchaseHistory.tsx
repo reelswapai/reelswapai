@@ -16,7 +16,7 @@ export default function PurchaseHistory({
 
   return (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>Historial de compras</Text>
+      <Text style={styles.cardTitle}>Últimas compras</Text>
 
       {purchases.map((item) => (
         <View key={item.id} style={styles.historyItem}>
@@ -29,7 +29,11 @@ export default function PurchaseHistory({
 
             <Text style={styles.historySubtitle}>
               {item.packTitle || 'Pack de tokens'} · {item.price} ·{' '}
-              {item.mode === 'test' ? 'Modo prueba' : 'RevenueCat'} ·{' '}
+              {item.mode === 'free'
+  ? 'Gratis'
+  : item.mode === 'test'
+    ? 'Modo prueba'
+    : 'RevenueCat'}
               {formatDate(item.createdAt)}
             </Text>
           </View>

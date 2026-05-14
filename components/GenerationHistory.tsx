@@ -18,7 +18,7 @@ export default function GenerationHistory({
 
   return (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>Historial de generaciones</Text>
+      <Text style={styles.cardTitle}>Últimas generaciones</Text>
 
       {generations.map((item) => (
         <TouchableOpacity
@@ -49,7 +49,7 @@ export default function GenerationHistory({
             </Text>
 
             <Text style={styles.historySubtitle}>
-              Listo para compartir · {formatDate(item.createdAt)}
+              Generado · {formatDate(item.createdAt)}
             </Text>
           </View>
         </TouchableOpacity>

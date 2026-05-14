@@ -13,8 +13,10 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   orderBy,
   query,
+  setDoc,
   updateDoc,
 } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
@@ -42,13 +44,14 @@ type ResultType = 'image' | 'video';
 
 type DetectedFace = {
   index: number;
-  x: number; // 0..1
-  y: number; // 0..1
-  width: number; // 0..1
-  height: number; // 0..1
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 };
 
 const BACKEND_URL = 'https://reelswapai-production.up.railway.app';
+const INITIAL_FREE_TOKENS = 6;
 
 function getVideoTokens(seconds: number) {
   if (seconds <= 10) return 3;
@@ -60,7 +63,10 @@ function getVideoTokens(seconds: number) {
 
 export default function HomeScreen() {
   const [mode, setMode] = useState<SwapMode>('video');
+
   const scrollRef = useRef<ScrollView>(null);
+  const tokenPacksRef = useRef<View>(null);
+  const [tokenPacksY, setTokenPacksY] = useState(0);
 
   const [faceImage, setFaceImage] = useState<string | null>(null);
   const [targetFile, setTargetFile] = useState<string | null>(null);
@@ -133,6 +139,35 @@ export default function HomeScreen() {
 
   const currentCost = mode === 'image' ? 2 : getVideoTokens(targetDuration);
 
+  const hasEnoughTokens = tokens >= currentCost;
+
+  const generationRequirementsReady =
+    !!user &&
+    !!faceImage &&
+    !!targetFile;
+
+  const canGenerate =
+    generationRequirementsReady &&
+    hasEnoughTokens &&
+    !generating &&
+    !isGenerating;
+
+  const canBuyTokensToGenerate =
+    generationRequirementsReady &&
+    !hasEnoughTokens &&
+    !generating &&
+    !isGenerating;
+
+  const generateDisabledReason = !user
+    ? 'Inicia sesión para generar'
+    : !faceImage
+      ? 'Selecciona tu rostro'
+      : !targetFile
+        ? 'Selecciona foto o vídeo destino'
+        : !hasEnoughTokens
+          ? 'Compra tokens para generar'
+          : '';
+
   const previewPlayer = useVideoPlayer(
     targetType === 'video' && targetFile ? targetFile : null,
     (player) => {
@@ -153,6 +188,13 @@ export default function HomeScreen() {
       player.loop = true;
     }
   );
+
+  function scrollToTokenPacks() {
+    scrollRef.current?.scrollTo({
+      y: tokenPacksY,
+      animated: true,
+    });
+  }
 
   function resetResult() {
     setResultReady(false);
@@ -223,7 +265,11 @@ export default function HomeScreen() {
     try {
       const purchasesRef = collection(db, 'users', userId, 'purchaseHistory');
 
-      const purchasesQuery = query(purchasesRef, orderBy('createdAt', 'desc'));
+      const purchasesQuery = query(
+        purchasesRef,
+        orderBy('createdAt', 'desc'),
+        limit(3)
+      );
 
       const snapshot = await getDocs(purchasesQuery);
 
@@ -242,7 +288,11 @@ export default function HomeScreen() {
     try {
       const historyRef = collection(db, 'users', userId, 'history');
 
-      const historyQuery = query(historyRef, orderBy('createdAt', 'desc'));
+      const historyQuery = query(
+        historyRef,
+        orderBy('createdAt', 'desc'),
+        limit(3)
+      );
 
       const snapshot = await getDocs(historyQuery);
 
@@ -297,6 +347,25 @@ export default function HomeScreen() {
       if (userSnap.exists()) {
         const data = userSnap.data();
         setTokens(data.tokens || 0);
+      } else {
+        await setDoc(userRef, {
+          email: currentUser.email || '',
+          tokens: INITIAL_FREE_TOKENS,
+          freeTokensGranted: true,
+          createdAt: new Date().toISOString(),
+        });
+
+        setTokens(INITIAL_FREE_TOKENS);
+
+        await addDoc(collection(db, 'users', currentUser.uid, 'purchaseHistory'), {
+          packId: 'free_trial',
+          revenueCatId: null,
+          packTitle: 'Tokens gratis de bienvenida',
+          tokensAdded: INITIAL_FREE_TOKENS,
+          price: '0 €',
+          mode: 'free',
+          createdAt: new Date().toISOString(),
+        });
       }
 
       await loadPurchaseHistory(currentUser.uid);
@@ -366,10 +435,7 @@ export default function HomeScreen() {
       if (data.faces?.length > 0) {
         setSelectedFaceIndex(0);
       } else {
-        Alert.alert(
-          'Sin caras detectadas',
-          'No se han detectado caras en esta imagen previa.'
-        );
+        
       }
     } catch (error: any) {
       console.log('Error detectando caras:', error);
@@ -436,7 +502,6 @@ export default function HomeScreen() {
         await setPreviewSource(asset.uri);
         await detectFaces(asset.uri);
 
-        Alert.alert('Imagen añadida ✅', 'Foto destino seleccionada.');
         return;
       }
 
@@ -481,12 +546,6 @@ export default function HomeScreen() {
         return;
       }
 
-      Alert.alert(
-        'Vídeo añadido ✅',
-        `Duración aproximada: ${durationSeconds || 10}s · Coste: ${getVideoTokens(
-          durationSeconds || 10
-        )} tokens`
-      );
     } catch (error) {
       console.log('Error seleccionando destino:', error);
 
@@ -547,10 +606,7 @@ export default function HomeScreen() {
         console.log('Error creando thumbnail desde Archivos:', error);
       }
 
-      Alert.alert(
-        'Vídeo añadido ✅',
-        `Vídeo destino seleccionado. Coste aproximado: ${getVideoTokens(10)} tokens`
-      );
+      
     } catch (error) {
       console.log('Error seleccionando vídeo desde archivos:', error);
 
@@ -664,12 +720,7 @@ export default function HomeScreen() {
         [
           {
             text: 'Comprar tokens',
-            onPress: () => {
-              scrollRef.current?.scrollTo({
-                y: 650,
-                animated: true,
-              });
-            },
+            onPress: scrollToTokenPacks,
           },
           {
             text: 'Cancelar',
@@ -719,7 +770,9 @@ export default function HomeScreen() {
         type: mode === 'video' ? 'video/mp4' : 'image/jpeg',
       } as any);
 
-      formData.append('targetFaceIndex', String(selectedFaceIndex ?? 0));
+      const apiTargetFaceIndex = selectedFaceIndex ?? 0;
+
+      formData.append('targetFaceIndex', String(apiTargetFaceIndex));
       formData.append('type', mode);
 
       setProgress(35);
@@ -772,6 +825,11 @@ export default function HomeScreen() {
           type: mode,
           cost: currentCost,
           resultUrl: finalUrl,
+          selectedFaceIndex: selectedFaceIndex ?? 0,
+          apiTargetFaceIndex,
+          detectedFacesCount: detectedFaces.length,
+          cloudinaryPublicId: data.cloudinaryPublicId || null,
+          cloudinaryResourceType: mode === 'image' ? 'image' : 'video',
           createdAt: new Date().toISOString(),
         });
 
@@ -835,7 +893,7 @@ export default function HomeScreen() {
       try {
         await MediaLibrary.createAlbumAsync('ReelSwap AI', asset, false);
       } catch {
-        // Si ya existe, no pasa nada
+        // Si ya existe, no pasa nada.
       }
 
       setGenerating(false);
@@ -1012,13 +1070,15 @@ export default function HomeScreen() {
                 mode === 'video' && styles.modeButtonActive,
               ]}
               onPress={() => {
-                setMode('video');
-                setTargetFile(null);
-                setTargetType(null);
-                setTargetDuration(10);
-                resetFaceDetectionState();
-                resetResult();
-              }}
+  setMode('video');
+  setTargetFile(null);
+  setTargetType(null);
+  setTargetDuration(10);
+  setStep('');
+  setProgress(0);
+  resetFaceDetectionState();
+  resetResult();
+}}
             >
               <Text
                 style={[
@@ -1036,13 +1096,15 @@ export default function HomeScreen() {
                 mode === 'image' && styles.modeButtonActive,
               ]}
               onPress={() => {
-                setMode('image');
-                setTargetFile(null);
-                setTargetType(null);
-                setTargetDuration(0);
-                resetFaceDetectionState();
-                resetResult();
-              }}
+  setMode('image');
+  setTargetFile(null);
+  setTargetType(null);
+  setTargetDuration(0);
+  setStep('');
+  setProgress(0);
+  resetFaceDetectionState();
+  resetResult();
+}}
             >
               <Text
                 style={[
@@ -1055,9 +1117,34 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={styles.button} onPress={generateSwap}>
-            <Text style={styles.buttonText}>
-              ✨ Crear ahora · {currentCost} tokens
+          <TouchableOpacity
+            style={[
+              styles.button,
+              !canGenerate && !canBuyTokensToGenerate ? styles.buttonDisabled : null,
+            ]}
+            onPress={() => {
+              if (canBuyTokensToGenerate) {
+                scrollToTokenPacks();
+                return;
+              }
+
+              if (canGenerate) {
+                generateSwap();
+              }
+            }}
+            disabled={!canGenerate && !canBuyTokensToGenerate}
+          >
+            <Text
+              style={[
+                styles.buttonText,
+                !canGenerate && !canBuyTokensToGenerate ? styles.buttonTextDisabled : null,
+              ]}
+            >
+              {canBuyTokensToGenerate
+                ? 'Comprar tokens para generar'
+                : canGenerate
+                  ? `✨ Crear ahora · ${currentCost} tokens`
+                  : generateDisabledReason}
             </Text>
           </TouchableOpacity>
         </View>
@@ -1194,17 +1281,24 @@ export default function HomeScreen() {
               </Text>
             ) : (
               <Text style={[styles.cardText, { marginTop: 12 }]}>
-                No se han detectado caras todavía.
+                No se ha encontrado ninguna cara clara en la vista previa.
               </Text>
             )}
           </View>
         )}
 
-        <TokenPacks
-          packs={TOKEN_PACKS}
-          styles={styles}
-          onBuyPack={handleBuyTokenPack}
-        />
+        <View
+          ref={tokenPacksRef}
+          onLayout={(event) => {
+            setTokenPacksY(event.nativeEvent.layout.y);
+          }}
+        >
+          <TokenPacks
+            packs={TOKEN_PACKS}
+            styles={styles}
+            onBuyPack={handleBuyTokenPack}
+          />
+        </View>
 
         <GenerateCard
           mode={mode}
@@ -1212,6 +1306,11 @@ export default function HomeScreen() {
           styles={styles}
           onGenerate={generateSwap}
           generating={generating}
+          canGenerate={canGenerate}
+          disabledReason={generateDisabledReason}
+          onBuyTokens={scrollToTokenPacks}
+          canBuyTokensToGenerate={canBuyTokensToGenerate}
+          generationRequirementsReady={generationRequirementsReady}
         />
 
         {generating && (
@@ -1272,13 +1371,20 @@ export default function HomeScreen() {
               <TouchableOpacity
                 style={styles.resultActionButton}
                 onPress={() => {
-                  setFaceImage(null);
-                  setTargetFile(null);
-                  setTargetType(null);
-                  setTargetDuration(mode === 'image' ? 0 : 10);
-                  resetFaceDetectionState();
-                  resetResult();
-                }}
+  setFaceImage(null);
+  setTargetFile(null);
+  setTargetType(null);
+  setTargetDuration(mode === 'image' ? 0 : 10);
+  setStep('');
+  setProgress(0);
+  resetFaceDetectionState();
+  resetResult();
+
+  scrollRef.current?.scrollTo({
+    y: 0,
+    animated: true,
+  });
+}}
               >
                 <Text style={styles.resultActionText}>Otro</Text>
               </TouchableOpacity>
@@ -1399,6 +1505,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     marginTop: 8,
+  },
+  buttonDisabled: {
+    opacity: 0.45,
+  },
+  buttonTextDisabled: {
+    color: '#777',
   },
   hero: {
     backgroundColor: '#11111C',
