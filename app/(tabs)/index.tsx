@@ -39,6 +39,8 @@ import PurchaseHistory from '../../components/PurchaseHistory';
 import TokenPacks from '../../components/TokenPacks';
 import { APP_CONFIG, getVideoTokens } from '../../constants/appConfig';
 import { auth, db } from '../../firebaseConfig';
+import { cleanError } from '../../utils/cleanError';
+import { formatDate } from '../../utils/formatDate';
 
 type SwapMode = 'image' | 'video';
 type ResultType = 'image' | 'video';
@@ -178,53 +180,6 @@ export default function HomeScreen() {
     setPreviewOriginalWidth(0);
     setPreviewOriginalHeight(0);
   }
-
-  function cleanError(error: any) {
-    const text = String(error?.message || error || '');
-
-    if (text.includes('content_policy_violation')) {
-      return 'El archivo ha sido bloqueado por el proveedor de IA. Prueba con otra foto o vídeo.';
-    }
-
-    if (text.includes('timeout')) {
-      return 'La generación ha tardado demasiado. Prueba con un vídeo más corto.';
-    }
-
-    if (text.includes('Insufficient') || text.includes('balance')) {
-      return 'El proveedor indica saldo insuficiente.';
-    }
-
-    return 'Algo falló conectando con la IA. Prueba otra vez.';
-  }
-
-  function formatDate(dateString?: string) {
-    if (!dateString) return '';
-
-    const date = new Date(dateString);
-    const now = new Date();
-
-    const isToday =
-      date.getDate() === now.getDate() &&
-      date.getMonth() === now.getMonth() &&
-      date.getFullYear() === now.getFullYear();
-
-    const time = date.toLocaleTimeString('es-ES', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
-    if (isToday) {
-      return `Hoy ${time}`;
-    }
-
-    return (
-      date.toLocaleDateString('es-ES', {
-        day: '2-digit',
-        month: 'short',
-      }) + ` · ${time}`
-    );
-  }
-
   async function loadPurchaseHistory(userId: string) {
     try {
       const purchasesRef = collection(db, 'users', userId, 'purchaseHistory');
