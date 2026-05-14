@@ -37,6 +37,7 @@ import GenerateCard from '../../components/GenerateCard';
 import GenerationHistory from '../../components/GenerationHistory';
 import PurchaseHistory from '../../components/PurchaseHistory';
 import TokenPacks from '../../components/TokenPacks';
+import { APP_CONFIG, getVideoTokens } from '../../constants/appConfig';
 import { auth, db } from '../../firebaseConfig';
 
 type SwapMode = 'image' | 'video';
@@ -50,16 +51,6 @@ type DetectedFace = {
   height: number;
 };
 
-const BACKEND_URL = 'https://reelswapai-production.up.railway.app';
-const INITIAL_FREE_TOKENS = 6;
-
-function getVideoTokens(seconds: number) {
-  if (seconds <= 10) return 3;
-  if (seconds <= 20) return 6;
-  if (seconds <= 30) return 10;
-  if (seconds <= 45) return 16;
-  return 24;
-}
 
 export default function HomeScreen() {
   const [mode, setMode] = useState<SwapMode>('video');
@@ -84,8 +75,6 @@ export default function HomeScreen() {
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [resultType, setResultType] = useState<ResultType | null>(null);
 
-  const USE_REVENUECAT = false;
-
   const [detectedFaces, setDetectedFaces] = useState<DetectedFace[]>([]);
   const [selectedFaceIndex, setSelectedFaceIndex] = useState<number | null>(null);
   const [previewUri, setPreviewUri] = useState<string | null>(null);
@@ -94,34 +83,6 @@ export default function HomeScreen() {
   const [previewOriginalWidth, setPreviewOriginalWidth] = useState(0);
   const [previewOriginalHeight, setPreviewOriginalHeight] = useState(0);
   const [detectingFaces, setDetectingFaces] = useState(false);
-
-  const TOKEN_PACKS = [
-    {
-      id: 'tokens_20',
-      revenueCatId: 'tokens_20',
-      title: 'Starter',
-      tokens: 20,
-      price: '4,99 €',
-      badge: null,
-    },
-    {
-      id: 'tokens_55',
-      revenueCatId: 'tokens_55',
-      title: 'Pro',
-      tokens: 55,
-      price: '9,99 €',
-      badge: 'Popular',
-    },
-    {
-      id: 'tokens_120',
-      revenueCatId: 'tokens_120',
-      title: 'Premium',
-      tokens: 120,
-      price: '19,99 €',
-      badge: null,
-    },
-  ];
-
   const [tokens, setTokens] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [resultReady, setResultReady] = useState(false);
@@ -137,7 +98,10 @@ export default function HomeScreen() {
   const [cloudinaryResourceType, setCloudinaryResourceType] =
     useState<'image' | 'video' | null>(null);
 
-  const currentCost = mode === 'image' ? 2 : getVideoTokens(targetDuration);
+  const currentCost =
+  mode === 'image'
+    ? APP_CONFIG.costs.image
+    : getVideoTokens(targetDuration);
 
   const hasEnoughTokens = tokens >= currentCost;
 
@@ -350,18 +314,18 @@ export default function HomeScreen() {
       } else {
         await setDoc(userRef, {
           email: currentUser.email || '',
-          tokens: INITIAL_FREE_TOKENS,
+          tokens: APP_CONFIG.initialFreeTokens,
           freeTokensGranted: true,
           createdAt: new Date().toISOString(),
         });
 
-        setTokens(INITIAL_FREE_TOKENS);
+        setTokens(APP_CONFIG.initialFreeTokens);
 
         await addDoc(collection(db, 'users', currentUser.uid, 'purchaseHistory'), {
           packId: 'free_trial',
           revenueCatId: null,
           packTitle: 'Tokens gratis de bienvenida',
-          tokensAdded: INITIAL_FREE_TOKENS,
+          tokensAdded: APP_CONFIG.initialFreeTokens,
           price: '0 €',
           mode: 'free',
           createdAt: new Date().toISOString(),
@@ -409,7 +373,7 @@ export default function HomeScreen() {
         type: 'image/jpeg',
       } as any);
 
-      const response = await fetch(`${BACKEND_URL}/detect-faces`, {
+      const response = await fetch(`${APP_CONFIG.backendUrl}/detect-faces`, {
         method: 'POST',
         body: formData,
       });
@@ -650,7 +614,7 @@ export default function HomeScreen() {
         return;
       }
 
-      const purchaseMode = USE_REVENUECAT ? 'revenuecat' : 'test';
+      const purchaseMode = APP_CONFIG.useRevenueCat ? 'revenuecat' : 'test';
       const newTokenBalance = tokens + pack.tokens;
 
       setTokens(newTokenBalance);
@@ -780,7 +744,7 @@ export default function HomeScreen() {
 
       const endpoint = mode === 'image' ? '/imageswap' : '/faceswap';
 
-      const response = await fetch(`${BACKEND_URL}${endpoint}`, {
+      const response = await fetch(`${APP_CONFIG.backendUrl}${endpoint}`, {
         method: 'POST',
         body: formData,
       });
@@ -908,7 +872,7 @@ export default function HomeScreen() {
       await Sharing.shareAsync(download.uri);
 
       if (cloudinaryPublicId && cloudinaryResourceType) {
-        await fetch(`${BACKEND_URL}/delete-cloudinary-result`, {
+        await fetch(`${APP_CONFIG.backendUrl}/delete-cloudinary-result`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1294,10 +1258,10 @@ export default function HomeScreen() {
           }}
         >
           <TokenPacks
-            packs={TOKEN_PACKS}
-            styles={styles}
-            onBuyPack={handleBuyTokenPack}
-          />
+          packs={APP_CONFIG.tokenPacks}
+          styles={styles}
+          onBuyPack={handleBuyTokenPack}
+        />
         </View>
 
         <GenerateCard
