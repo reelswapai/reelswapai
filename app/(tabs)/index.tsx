@@ -1401,6 +1401,14 @@ if (APP_CONFIG.useRevenueCat) {
           styles={styles}
           formatDate={formatDate}
         />
+
+        <View style={styles.noticeCard}>
+  <Text style={styles.noticeTitle}>Uso responsable</Text>
+  <Text style={styles.noticeText}>
+    Usa solo imágenes y vídeos propios o con permiso. No uses ReelSwapAI para suplantar, engañar o crear contenido sin consentimiento.
+  </Text>
+        </View>
+
       </ScrollView>
 
       <Modal visible={showResult} animationType="slide">
@@ -1503,6 +1511,27 @@ const styles = StyleSheet.create({
   buttonDisabled: {
     opacity: 0.45,
   },
+  noticeCard: {
+  backgroundColor: 'rgba(255,255,255,0.05)',
+  borderRadius: 20,
+  padding: 16,
+  marginTop: 20,
+  borderWidth: 1,
+  borderColor: 'rgba(255,255,255,0.08)',
+},
+
+noticeTitle: {
+  color: 'white',
+  fontSize: 16,
+  fontWeight: '900',
+  marginBottom: 6,
+},
+
+noticeText: {
+  color: '#B6B6CA',
+  fontSize: 13,
+  lineHeight: 19,
+},
   buttonTextDisabled: {
     color: '#777',
   },
