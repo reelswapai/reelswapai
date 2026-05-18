@@ -245,7 +245,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     Purchases.configure({
-      apiKey: 'test_nKIwwycKEUdOcwnYObDKSjrWMFI',
+      apiKey: 'appl_lpIIEFOmMnwcWvPnIhFEZVntErW',
     });
 
     loadProducts();
@@ -568,7 +568,75 @@ export default function HomeScreen() {
         Alert.alert('Inicia sesión', 'Debes iniciar sesión para comprar tokens.');
         return;
       }
+if (APP_CONFIG.useRevenueCat) {
+  setLoadingProducts(true);
 
+  const offerings = await Purchases.getOfferings();
+  const currentOffering = offerings.current;
+
+  if (!currentOffering) {
+    Alert.alert(
+      'Productos no disponibles',
+      'RevenueCat no ha devuelto ningún offering activo.'
+    );
+    setLoadingProducts(false);
+    return;
+  }
+
+  const packageToBuy = currentOffering.availablePackages.find(
+    (item) => item.product.identifier === pack.revenueCatId
+  );
+
+  if (!packageToBuy) {
+    console.log(
+      'Packages disponibles:',
+      currentOffering.availablePackages.map((item) => item.product.identifier)
+    );
+
+    Alert.alert(
+      'Producto no encontrado',
+      `No se ha encontrado el producto ${pack.revenueCatId} en RevenueCat.`
+    );
+
+    setLoadingProducts(false);
+    return;
+  }
+
+  const purchaseResult = await Purchases.purchasePackage(packageToBuy);
+
+  console.log('Compra RevenueCat OK:', purchaseResult);
+
+  const newTokenBalance = tokens + pack.tokens;
+
+  setTokens(newTokenBalance);
+
+  const userRef = doc(db, 'users', user.uid);
+
+  await updateDoc(userRef, {
+    tokens: newTokenBalance,
+  });
+
+  await addDoc(collection(db, 'users', user.uid, 'purchaseHistory'), {
+    packId: pack.id,
+    revenueCatId: pack.revenueCatId,
+    packTitle: pack.title,
+    tokensAdded: pack.tokens,
+    price: pack.price,
+    mode: 'revenuecat',
+    createdAt: new Date().toISOString(),
+  });
+
+  await loadPurchaseHistory(user.uid);
+
+  setLoadingProducts(false);
+
+  Alert.alert(
+    'Compra completada ✅',
+    `Has añadido ${pack.tokens} tokens.`
+  );
+
+  return;
+}
       const purchaseMode = APP_CONFIG.useRevenueCat ? 'revenuecat' : 'test';
       const newTokenBalance = tokens + pack.tokens;
 
@@ -595,13 +663,20 @@ export default function HomeScreen() {
       Alert.alert('Tokens añadidos ✅', `Has añadido ${pack.tokens} tokens.`);
 
       console.log('Pack comprado y guardado:', pack.id, pack.tokens);
-    } catch (error) {
-      console.log('Error comprando pack:', error);
-      Alert.alert(
-        'Error',
-        'No se han podido añadir los tokens. Inténtalo de nuevo.'
-      );
-    }
+    } catch (error: any) {
+  console.log('ERROR COMPRA REVENUECAT COMPLETO:', JSON.stringify(error, null, 2));
+  console.log('ERROR COMPRA REVENUECAT RAW:', error);
+
+  setLoadingProducts(false);
+
+  Alert.alert(
+    'Error compra RevenueCat',
+    error?.message ||
+      error?.userInfo?.readable_error_code ||
+      error?.code ||
+      'No se ha podido completar la compra.'
+  );
+}
   }
 
   async function generateSwap() {
