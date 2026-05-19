@@ -1,12 +1,14 @@
+import * as AppleAuthentication from 'expo-apple-authentication';
 import {
-    createUserWithEmailAndPassword,
-    signInWithEmailAndPassword,
-    signOut,
-} from "firebase/auth";
+  createUserWithEmailAndPassword,
+  OAuthProvider,
+  signInWithCredential,
+  signInWithEmailAndPassword,
+  signOut,
+} from 'firebase/auth';
+import { auth } from './firebaseConfig';
 
-import { auth } from "./firebaseConfig";
-
-// REGISTRO
+// REGISTRO EMAIL
 export const registerUser = async (
   email: string,
   password: string
@@ -18,7 +20,7 @@ export const registerUser = async (
   );
 };
 
-// LOGIN
+// LOGIN EMAIL
 export const loginUser = async (
   email: string,
   password: string
@@ -29,6 +31,28 @@ export const loginUser = async (
     password
   );
 };
+
+// LOGIN CON APPLE
+export async function loginWithApple() {
+  const credential = await AppleAuthentication.signInAsync({
+    requestedScopes: [
+      AppleAuthentication.AppleAuthenticationScope.EMAIL,
+      AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+    ],
+  });
+
+  if (!credential.identityToken) {
+    throw new Error('Apple no ha devuelto token de identidad.');
+  }
+
+  const provider = new OAuthProvider('apple.com');
+
+  const firebaseCredential = provider.credential({
+    idToken: credential.identityToken,
+  });
+
+  return signInWithCredential(auth, firebaseCredential);
+}
 
 // LOGOUT
 export const logoutUser = async () => {

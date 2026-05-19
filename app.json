@@ -14,7 +14,8 @@
           }
         }
       ],
-      "expo-video"
+      "expo-video",
+      "expo-apple-authentication"
     ],
     "name": "ReelSwapAI",
     "slug": "ReelSwapAI",
@@ -27,6 +28,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.reelswapai.app",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSPhotoLibraryUsageDescription": "ReelSwapAI necesita acceso a tus fotos y vídeos para seleccionar el rostro y el archivo destino.",

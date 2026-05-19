@@ -1,7 +1,7 @@
 export const APP_CONFIG = {
   backendUrl: 'https://reelswapai-production.up.railway.app',
   initialFreeTokens: 6,
-  useRevenueCat: false,
+  useRevenueCat: true,
 tokenPacks: [
   {
     id: 'tokens_20',

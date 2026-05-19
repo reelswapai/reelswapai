@@ -27,12 +27,11 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import Purchases from 'react-native-purchases';
-import { loginUser, registerUser } from '../../auth';
+import AuthScreen from '../../components/AuthScreen';
 import GenerateCard from '../../components/GenerateCard';
 import GenerationHistory from '../../components/GenerationHistory';
 import PurchaseHistory from '../../components/PurchaseHistory';
@@ -542,26 +541,6 @@ export default function HomeScreen() {
     return result.uri;
   }
 
-  async function handleAuth() {
-    try {
-      if (!email || !password) {
-        Alert.alert('Faltan datos', 'Introduce email y contraseña.');
-        return;
-      }
-
-      if (isLogin) {
-        await loginUser(email, password);
-        Alert.alert('Bienvenido 🔥', 'Sesión iniciada correctamente.');
-      } else {
-        await registerUser(email, password);
-        Alert.alert('Cuenta creada 🚀', 'Usuario registrado correctamente.');
-      }
-    } catch (error: any) {
-      console.log(error);
-      Alert.alert('Error', error?.message || 'Error autenticando.');
-    }
-  }
-
   async function handleBuyTokenPack(pack: any) {
     try {
       if (!user?.uid) {
@@ -962,7 +941,19 @@ if (APP_CONFIG.useRevenueCat) {
       height: face.height * displayedHeight,
     };
   }
-
+if (!user) {
+  return (
+    <AuthScreen
+      email={email}
+      password={password}
+      isLogin={isLogin}
+      styles={styles}
+      setEmail={setEmail}
+      setPassword={setPassword}
+      setIsLogin={setIsLogin}
+    />
+  );
+}
   return (
     <>
       <ScrollView
@@ -970,52 +961,6 @@ if (APP_CONFIG.useRevenueCat) {
         style={styles.container}
         contentContainerStyle={styles.content}
       >
-        {!user && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>
-              {isLogin ? 'Iniciar sesión' : 'Crear cuenta'}
-            </Text>
-
-            <TextInput
-              placeholder="Email"
-              placeholderTextColor="#888"
-              value={email}
-              onChangeText={setEmail}
-              style={styles.input}
-              autoCapitalize="none"
-            />
-
-            <TextInput
-              placeholder="Contraseña"
-              placeholderTextColor="#888"
-              value={password}
-              onChangeText={setPassword}
-              style={styles.input}
-              secureTextEntry
-            />
-
-            <TouchableOpacity
-              style={styles.generateButton}
-              onPress={handleAuth}
-            >
-              <Text style={styles.generateButtonText}>
-                {isLogin ? 'Entrar' : 'Crear cuenta'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => setIsLogin(!isLogin)}
-              style={{ marginTop: 14 }}
-            >
-              <Text style={styles.switchAuthText}>
-                {isLogin
-                  ? '¿No tienes cuenta? Crear cuenta'
-                  : '¿Ya tienes cuenta? Iniciar sesión'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
         {user && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Cuenta</Text>
@@ -1519,7 +1464,50 @@ const styles = StyleSheet.create({
   borderWidth: 1,
   borderColor: 'rgba(255,255,255,0.08)',
 },
+authContainer: {
+  flex: 1,
+  backgroundColor: '#050509',
+  padding: 20,
+  justifyContent: 'center',
+},
 
+authHero: {
+  marginBottom: 28,
+},
+
+authTitle: {
+  color: 'white',
+  fontSize: 44,
+  fontWeight: '900',
+  marginTop: 18,
+},
+
+authSubtitle: {
+  color: '#B6B6CA',
+  fontSize: 16,
+  marginTop: 10,
+  lineHeight: 24,
+},
+
+authCard: {
+  backgroundColor: '#11111C',
+  borderRadius: 28,
+  padding: 22,
+  borderWidth: 1,
+  borderColor: 'rgba(255,255,255,0.08)',
+},
+appleButton: {
+  width: '100%',
+  height: 50,
+  marginTop: 14,
+},
+authLegalText: {
+  color: '#777',
+  fontSize: 12,
+  lineHeight: 18,
+  textAlign: 'center',
+  marginTop: 18,
+},
 noticeTitle: {
   color: 'white',
   fontSize: 16,
