@@ -3,9 +3,16 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
 import multer from 'multer';
+import { Agent, setGlobalDispatcher } from 'undici';
 
 dotenv.config();
 
+setGlobalDispatcher(
+  new Agent({
+    headersTimeout: 10 * 60 * 1000,
+    bodyTimeout: 10 * 60 * 1000,
+  })
+);
 const app = express();
 const upload = multer();
 
