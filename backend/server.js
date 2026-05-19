@@ -1,3 +1,4 @@
+import { fal } from '@fal-ai/client';
 import { v2 as cloudinary } from 'cloudinary';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -13,6 +14,10 @@ setGlobalDispatcher(
     bodyTimeout: 10 * 60 * 1000,
   })
 );
+
+fal.config({
+  credentials: process.env.FAL_KEY,
+});
 
 const app = express();
 const upload = multer();
@@ -80,10 +85,57 @@ async function deleteFromCloudinary(publicId, resourceType) {
   }
 }
 
+async function waitForFalResult(modelId, requestId) {
+  const maxAttempts = 90;
+  const delayMs = 5000;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    console.log(`Consultando estado fal.ai intento ${attempt}/${maxAttempts}`);
+
+    const status = await fal.queue.status(modelId, {
+      requestId,
+      logs: true,
+    });
+
+    console.log('Estado fal.ai:', status?.status);
+
+    if (status?.status === 'COMPLETED') {
+      const result = await fal.queue.result(modelId, {
+        requestId,
+      });
+
+      return result;
+    }
+
+    if (status?.status === 'FAILED') {
+      throw new Error('fal.ai devolvió estado FAILED');
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
+  throw new Error('Timeout esperando resultado de fal.ai');
+}
+
+function findVideoUrlFromFalResult(result) {
+  return (
+    result?.data?.video?.url ||
+    result?.data?.video_url ||
+    result?.data?.url ||
+    result?.data?.output?.url ||
+    result?.data?.output?.[0]?.url ||
+    result?.data?.output?.[0] ||
+    result?.video?.url ||
+    result?.video_url ||
+    result?.url ||
+    null
+  );
+}
+
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'ReelSwapAI backend funcionando v5 con 1min.AI video',
+    message: 'ReelSwapAI backend funcionando v6 con fal.ai video',
   });
 });
 
@@ -167,7 +219,7 @@ app.post(
     let targetUpload;
 
     try {
-      console.log('Nueva petición FaceSwap VIDEO 1min.AI');
+      console.log('Nueva petición FaceSwap VIDEO fal.ai');
 
       const faceFile = req.files?.face?.[0];
       const targetFile = req.files?.target?.[0];
@@ -195,80 +247,40 @@ app.post(
 
       console.log('Face subida:', faceUpload.secure_url);
       console.log('Video subido:', targetUpload.secure_url);
-      console.log('Enviando petición a 1min.AI Video Face Swap...');
 
-      const response = await fetch('https://api.1min.ai/api/features', {
-        method: 'POST',
-        headers: {
-          'API-KEY': process.env.ONEMIN_API_KEY,
-          'Content-Type': 'application/json',
+      const modelId = 'half-moon-ai/ai-face-swap/faceswapvideo';
+
+      console.log('Enviando petición a fal.ai:', modelId);
+
+      const submitResult = await fal.queue.submit(modelId, {
+        input: {
+          video_url: targetUpload.secure_url,
+          image_url: faceUpload.secure_url,
         },
-        body: JSON.stringify({
-          type: 'VIDEO_FACE_SWAPPER',
-          model: 'Qubico/video-toolkit',
-          conversationId: 'VIDEO_FACE_SWAPPER',
-          promptObject: {
-            targetVideoUrl: targetUpload.secure_url.replace('/upload/', '/upload/f_mp4/'),
-            swapImageUrl: faceUpload.secure_url,
-          },
-        }),
       });
 
-      console.log('Respuesta recibida de 1min.AI:', response.status);
+      console.log('fal.ai requestId:', submitResult.request_id);
 
-      const responseText = await response.text();
-      console.log('Respuesta texto 1min.AI:', responseText);
+      const falResult = await waitForFalResult(
+        modelId,
+        submitResult.request_id
+      );
 
-      if (!response.ok) {
+      console.log('Resultado completo fal.ai:');
+      console.dir(falResult, { depth: null });
+
+      const resultUrl = findVideoUrlFromFalResult(falResult);
+
+      console.log('URL resultado detectada fal.ai:', resultUrl);
+
+      if (!resultUrl) {
         await deleteFromCloudinary(faceUpload.public_id, 'image');
         await deleteFromCloudinary(targetUpload.public_id, 'video');
 
         return res.status(500).json({
           success: false,
-          error: responseText,
-        });
-      }
-
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (parseError) {
-        console.log('No se pudo parsear JSON 1min.AI:', parseError);
-
-        await deleteFromCloudinary(faceUpload.public_id, 'image');
-        await deleteFromCloudinary(targetUpload.public_id, 'video');
-
-        return res.status(500).json({
-          success: false,
-          error: '1min.AI no devolvió JSON válido',
-          raw: responseText,
-        });
-      }
-
-      const resultUrl =
-        data?.output?.[0] ||
-        data?.output ||
-        data?.result?.[0] ||
-        data?.result ||
-        data?.videoUrl ||
-        data?.url ||
-        data?.data?.output?.[0] ||
-        data?.data?.output ||
-        data?.data?.result?.[0] ||
-        data?.data?.result ||
-        data?.data?.videoUrl ||
-        data?.data?.url;
-
-      console.log('URL resultado detectada 1min.AI:', resultUrl);
-
-      if (!resultUrl || typeof resultUrl !== 'string') {
-        await deleteFromCloudinary(faceUpload.public_id, 'image');
-        await deleteFromCloudinary(targetUpload.public_id, 'video');
-
-        return res.status(500).json({
-          success: false,
-          error: 'No se encontró URL de vídeo en respuesta de 1min.AI',
-          data,
+          error: 'No se encontró URL de vídeo en respuesta de fal.ai',
+          data: falResult,
         });
       }
 
@@ -282,7 +294,7 @@ app.post(
 
         return res.status(500).json({
           success: false,
-          error: 'No se pudo descargar el vídeo generado por 1min.AI',
+          error: 'No se pudo descargar el vídeo generado por fal.ai',
           details: resultErrorText,
         });
       }
