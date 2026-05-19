@@ -248,15 +248,19 @@ app.post(
       console.log('Face subida:', faceUpload.secure_url);
       console.log('Video subido:', targetUpload.secure_url);
 
-      const modelId = 'half-moon-ai/ai-face-swap/faceswapvideo';
+      const modelId = 'fal-ai/pixverse/swap';
 
       console.log('Enviando petición a fal.ai:', modelId);
 
       const submitResult = await fal.queue.submit(modelId, {
         input: {
-          video_url: targetUpload.secure_url,
-          image_url: faceUpload.secure_url,
-        },
+        video_url: targetUpload.secure_url,
+        image_url: faceUpload.secure_url,
+        swap_mode: 'person',
+        keyframe_id: 1,
+        original_sound_switch: true,
+        resolution: '540p',
+},
       });
 
       console.log('fal.ai requestId:', submitResult.request_id);
