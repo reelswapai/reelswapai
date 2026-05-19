@@ -208,7 +208,7 @@ app.post(
           model: 'Qubico/video-toolkit',
           conversationId: 'VIDEO_FACE_SWAPPER',
           promptObject: {
-            targetVideoUrl: targetUpload.secure_url,
+            targetVideoUrl: targetUpload.secure_url.replace('/upload/', '/upload/f_mp4/'),
             swapImageUrl: faceUpload.secure_url,
           },
         }),
