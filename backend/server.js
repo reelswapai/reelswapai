@@ -254,10 +254,9 @@ app.post(
 
       const submitResult = await fal.queue.submit(modelId, {
         input: {
-        video_url: targetUpload.secure_url.replace(
-  '/upload/',
-  '/upload/w_720,h_1280,c_limit,f_mp4/'
-),
+        video_url: targetUpload.secure_url
+  .replace('/upload/', '/upload/w_720,h_1280,c_limit,f_mp4/')
+  .replace(/\.(mov|MOV)$/, '.mp4'),
         image_url: faceUpload.secure_url,
         swap_mode: 'person',
         keyframe_id: 1,
