@@ -227,19 +227,21 @@ app.post(
       console.log('Video Magic Hour URL:', targetUpload.secure_url);
 
       const result = await magicHour.v1.faceSwap.generate(
-        {
-          assets: {
-            imageFilePath: faceUpload.secure_url,
-            videoFilePath: targetUpload.secure_url,
-            videoSource: 'file',
-          },
-          name: `ReelSwapAI-${Date.now()}`,
-        },
-        {
-          waitForCompletion: true,
-          downloadOutputs: true,
-        }
-      );
+  {
+    assets: {
+      imageFilePath: faceUpload.secure_url,
+      videoFilePath: targetUpload.secure_url,
+      videoSource: 'file',
+    },
+    startSeconds: 0,
+    endSeconds: 10,
+    name: `ReelSwapAI-${Date.now()}`,
+  },
+  {
+    waitForCompletion: true,
+    downloadOutputs: true,
+  }
+);
 
       console.log('Resultado Magic Hour:');
       console.dir(result, { depth: null });
