@@ -75,7 +75,7 @@ async function deleteFromCloudinary(publicId, resourceType) {
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'ReelSwapAI backend funcionando v3 con detect-faces',
+    message: 'ReelSwapAI backend funcionando v4 con HyperSwap video 1a',
   });
 });
 
@@ -156,13 +156,10 @@ app.post(
   ]),
   async (req, res) => {
     try {
-      console.log('Nueva petición FaceSwap VIDEO');
+      console.log('Nueva petición FaceSwap VIDEO HyperSwap 1a');
 
       const faceFile = req.files?.face?.[0];
       const targetFile = req.files?.target?.[0];
-      const targetFaceIndex = Number(req.body?.targetFaceIndex ?? 0);
-
-      console.log('targetFaceIndex VIDEO:', targetFaceIndex);
 
       if (!faceFile || !targetFile) {
         return res.status(400).json({
@@ -185,6 +182,9 @@ app.post(
         `target-video-${Date.now()}`
       );
 
+      console.log('Face subida:', faceUpload.secure_url);
+      console.log('Video subido:', targetUpload.secure_url);
+
       const response = await fetch(
         'https://api.segmind.com/v1/video-faceswap-by-facefusion-labs',
         {
@@ -196,14 +196,9 @@ app.post(
           body: JSON.stringify({
             source_image: faceUpload.secure_url,
             target_video: targetUpload.secure_url,
-            pixel_boost: '768x768',
-            face_selector_mode: 'reference',
-            face_selector_order: 'large-small',
-            face_selector_age_start: 0,
-            face_selector_age_end: 100,
-            target_face_index: targetFaceIndex,
-            reference_face_distance: 0.45,
-            reference_frame_number: 1,
+            model_name: 'hyperswap_1a',
+            face_mask_blur: 0.3,
+            face_detector_score: 0.4,
             base64: false,
           }),
         }
@@ -212,6 +207,9 @@ app.post(
       if (!response.ok) {
         const errorText = await response.text();
         console.log('Segmind video error:', errorText);
+
+        await deleteFromCloudinary(faceUpload.public_id, 'image');
+        await deleteFromCloudinary(targetUpload.public_id, 'video');
 
         return res.status(500).json({
           success: false,
@@ -312,6 +310,9 @@ app.post(
       if (!response.ok) {
         const errorText = await response.text();
         console.log('Segmind image error:', errorText);
+
+        await deleteFromCloudinary(faceUpload.public_id, 'image');
+        await deleteFromCloudinary(targetUpload.public_id, 'image');
 
         return res.status(500).json({
           success: false,
