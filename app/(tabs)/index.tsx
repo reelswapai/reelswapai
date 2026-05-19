@@ -1347,9 +1347,9 @@ if (!user) {
         <View style={styles.noticeCard}>
   <Text style={styles.noticeTitle}>Uso responsable</Text>
   <Text style={styles.noticeText}>
-    Usa solo imágenes y vídeos propios o con permiso. No uses ReelSwapAI para suplantar, engañar o crear contenido sin consentimiento.
+    Usa ReelSwapAI solo con imágenes y vídeos propios o con permiso explícito. No utilices la app para suplantar identidades, engañar a otras personas, acosar, difamar o crear contenido sin consentimiento.
   </Text>
-        </View>
+</View>
 
       </ScrollView>
 

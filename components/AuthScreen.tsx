@@ -135,7 +135,7 @@ export default function AuthScreen({
         </TouchableOpacity>
 
         <Text style={styles.authLegalText}>
-          Al continuar aceptas usar ReelSwapAI de forma responsable y solo con imágenes propias o con permiso.
+          Al continuar aceptas usar ReelSwapAI de forma responsable, solo con imágenes propias o con permiso explícito.
         </Text>
       </View>
     </View>
