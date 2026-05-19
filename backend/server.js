@@ -60,8 +60,8 @@ function uploadVideoToCloudinaryMp4(buffer, filename) {
         overwrite: true,
         transformation: [
           {
-            width: 720,
-            height: 1280,
+            width: 1080,
+            height: 1920,
             crop: 'limit',
             format: 'mp4',
           },
