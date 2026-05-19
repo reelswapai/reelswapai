@@ -58,15 +58,15 @@ function uploadVideoToCloudinaryForFal(buffer, filename) {
         folder: 'reelswapai/targets',
         public_id: filename,
         overwrite: true,
-        eager: [
-          {
-            width: 720,
-            height: 1280,
-            crop: 'limit',
-            format: 'mp4',
-          },
-        ],
-        eager_async: false,
+        transformation: [
+  {
+    width: 720,
+    height: 1280,
+    crop: 'limit',
+    format: 'mp4',
+  },
+],
+format: 'mp4',
       },
       (error, result) => {
         if (error) reject(error);
@@ -271,8 +271,7 @@ app.post(
         `target-video-${Date.now()}`
       );
 
-      const falVideoUrl =
-        targetUpload.eager?.[0]?.secure_url || targetUpload.secure_url;
+      const falVideoUrl = targetUpload.secure_url;
 
       console.log('Face subida:', faceUpload.secure_url);
       console.log('Video subido:', targetUpload.secure_url);
