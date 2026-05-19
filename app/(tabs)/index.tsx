@@ -23,6 +23,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Image,
+  LogBox,
   Modal,
   ScrollView,
   StyleSheet,
@@ -40,6 +41,12 @@ import { APP_CONFIG, getVideoTokens } from '../../constants/appConfig';
 import { auth, db } from '../../firebaseConfig';
 import { cleanError } from '../../utils/cleanError';
 import { formatDate } from '../../utils/formatDate';
+
+LogBox.ignoreLogs([
+  '[RevenueCat]',
+  'Error fetching offerings',
+  'There is an issue with your configuration',
+]);
 
 type SwapMode = 'image' | 'video';
 type ResultType = 'image' | 'video';
@@ -1719,7 +1726,7 @@ noticeText: {
   packPrice: {
     color: 'white',
     fontWeight: '900',
-    fontSize: 20,
+    fontSize: 18,
     marginTop: 8,
   },
   loaderCard: {
