@@ -50,6 +50,34 @@ function uploadToCloudinary(buffer, resourceType, folder, filename) {
   });
 }
 
+function uploadVideoToCloudinaryForFal(buffer, filename) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        resource_type: 'video',
+        folder: 'reelswapai/targets',
+        public_id: filename,
+        overwrite: true,
+        eager: [
+          {
+            width: 720,
+            height: 1280,
+            crop: 'limit',
+            format: 'mp4',
+          },
+        ],
+        eager_async: false,
+      },
+      (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      }
+    );
+
+    stream.end(buffer);
+  });
+}
+
 function uploadToCloudinaryWithFaces(buffer, folder, filename) {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
@@ -135,7 +163,7 @@ function findVideoUrlFromFalResult(result) {
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'ReelSwapAI backend funcionando v6 con fal.ai video',
+    message: 'ReelSwapAI backend funcionando v7 con fal.ai PixVerse video',
   });
 });
 
@@ -219,7 +247,7 @@ app.post(
     let targetUpload;
 
     try {
-      console.log('Nueva petición FaceSwap VIDEO fal.ai');
+      console.log('Nueva petición FaceSwap VIDEO fal.ai PixVerse');
 
       const faceFile = req.files?.face?.[0];
       const targetFile = req.files?.target?.[0];
@@ -238,15 +266,17 @@ app.post(
         `face-${Date.now()}`
       );
 
-      targetUpload = await uploadToCloudinary(
+      targetUpload = await uploadVideoToCloudinaryForFal(
         targetFile.buffer,
-        'video',
-        'reelswapai/targets',
         `target-video-${Date.now()}`
       );
 
+      const falVideoUrl =
+        targetUpload.eager?.[0]?.secure_url || targetUpload.secure_url;
+
       console.log('Face subida:', faceUpload.secure_url);
       console.log('Video subido:', targetUpload.secure_url);
+      console.log('Video fal URL:', falVideoUrl);
 
       const modelId = 'fal-ai/pixverse/swap';
 
@@ -254,12 +284,12 @@ app.post(
 
       const submitResult = await fal.queue.submit(modelId, {
         input: {
-        video_url: falVideoUrl,
-        image_url: faceUpload.secure_url,
-        swap_mode: 'person',
-        keyframe_id: 1,
-        original_sound_switch: true,
-},
+          video_url: falVideoUrl,
+          image_url: faceUpload.secure_url,
+          swap_mode: 'person',
+          keyframe_id: 1,
+          original_sound_switch: true,
+        },
       });
 
       console.log('fal.ai requestId:', submitResult.request_id);
@@ -347,6 +377,9 @@ app.post(
     { name: 'target', maxCount: 1 },
   ]),
   async (req, res) => {
+    let faceUpload;
+    let targetUpload;
+
     try {
       console.log('Nueva petición FaceSwap FOTO');
 
@@ -363,43 +396,19 @@ app.post(
         });
       }
 
-      const faceUpload = await uploadToCloudinary(
+      faceUpload = await uploadToCloudinary(
         faceFile.buffer,
         'image',
         'reelswapai/faces',
         `face-${Date.now()}`
       );
 
-      const targetUpload = await new Promise((resolve, reject) => {
-  const stream = cloudinary.uploader.upload_stream(
-    {
-      resource_type: 'video',
-      folder: 'reelswapai/targets',
-      public_id: `target-video-${Date.now()}`,
-      overwrite: true,
-      eager: [
-        {
-          width: 720,
-          height: 1280,
-          crop: 'limit',
-          format: 'mp4',
-        },
-      ],
-      eager_async: false,
-    },
-    (error, result) => {
-      if (error) reject(error);
-      else resolve(result);
-    }
-  );
-
-  stream.end(targetFile.buffer);
-});
-
-const falVideoUrl =
-  targetUpload.eager?.[0]?.secure_url || targetUpload.secure_url;
-
-console.log('Video fal URL:', falVideoUrl);
+      targetUpload = await uploadToCloudinary(
+        targetFile.buffer,
+        'image',
+        'reelswapai/targets',
+        `target-image-${Date.now()}`
+      );
 
       const response = await fetch(
         'https://api.segmind.com/v1/hyperswap-image-faceswap-by-facefusion-labs',
@@ -458,6 +467,14 @@ console.log('Video fal URL:', falVideoUrl);
     } catch (error) {
       console.log('ERROR BACKEND IMAGE FULL:');
       console.dir(error, { depth: null });
+
+      if (faceUpload?.public_id) {
+        await deleteFromCloudinary(faceUpload.public_id, 'image');
+      }
+
+      if (targetUpload?.public_id) {
+        await deleteFromCloudinary(targetUpload.public_id, 'image');
+      }
 
       return res.status(500).json({
         success: false,
