@@ -185,24 +185,26 @@ app.post(
       console.log('Face subida:', faceUpload.secure_url);
       console.log('Video subido:', targetUpload.secure_url);
 
-      const response = await fetch(
-        'https://api.segmind.com/v1/video-faceswap-by-facefusion-labs',
-        {
-          method: 'POST',
-          headers: {
-            'x-api-key': process.env.SEGMIND_API_KEY,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            source_image: faceUpload.secure_url,
-            target_video: targetUpload.secure_url,
-            model_name: 'hyperswap_1a',
-            face_mask_blur: 0.3,
-            face_detector_score: 0.4,
-            base64: false,
-          }),
-        }
-      );
+      console.log('Enviando petición a Segmind HyperSwap...');
+
+const response = await fetch(
+  'https://api.segmind.com/v1/video-faceswap-by-facefusion-labs',
+  {
+    method: 'POST',
+    headers: {
+      'x-api-key': process.env.SEGMIND_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      source_image: faceUpload.secure_url,
+      target_video: targetUpload.secure_url,
+      model_name: 'hyperswap_1a',
+      base64: false,
+    }),
+  }
+);
+
+console.log('Respuesta recibida de Segmind:', response.status);
 
       if (!response.ok) {
         const errorText = await response.text();
