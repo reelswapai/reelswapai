@@ -1,8 +1,8 @@
-import { fal } from '@fal-ai/client';
 import { v2 as cloudinary } from 'cloudinary';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
+import { Client } from 'magic-hour';
 import multer from 'multer';
 import { Agent, setGlobalDispatcher } from 'undici';
 
@@ -15,8 +15,8 @@ setGlobalDispatcher(
   })
 );
 
-fal.config({
-  credentials: process.env.FAL_KEY,
+const magicHour = new Client({
+  token: process.env.MAGIC_HOUR_API_KEY,
 });
 
 const app = express();
@@ -50,7 +50,7 @@ function uploadToCloudinary(buffer, resourceType, folder, filename) {
   });
 }
 
-function uploadVideoToCloudinaryForFal(buffer, filename) {
+function uploadVideoToCloudinaryMp4(buffer, filename) {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       {
@@ -59,14 +59,14 @@ function uploadVideoToCloudinaryForFal(buffer, filename) {
         public_id: filename,
         overwrite: true,
         transformation: [
-  {
-    width: 720,
-    height: 1280,
-    crop: 'limit',
-    format: 'mp4',
-  },
-],
-format: 'mp4',
+          {
+            width: 720,
+            height: 1280,
+            crop: 'limit',
+            format: 'mp4',
+          },
+        ],
+        format: 'mp4',
       },
       (error, result) => {
         if (error) reject(error);
@@ -113,49 +113,16 @@ async function deleteFromCloudinary(publicId, resourceType) {
   }
 }
 
-async function waitForFalResult(modelId, requestId) {
-  const maxAttempts = 90;
-  const delayMs = 5000;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    console.log(`Consultando estado fal.ai intento ${attempt}/${maxAttempts}`);
-
-    const status = await fal.queue.status(modelId, {
-      requestId,
-      logs: true,
-    });
-
-    console.log('Estado fal.ai:', status?.status);
-
-    if (status?.status === 'COMPLETED') {
-      const result = await fal.queue.result(modelId, {
-        requestId,
-      });
-
-      return result;
-    }
-
-    if (status?.status === 'FAILED') {
-      throw new Error('fal.ai devolvió estado FAILED');
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
-  }
-
-  throw new Error('Timeout esperando resultado de fal.ai');
-}
-
-function findVideoUrlFromFalResult(result) {
+function findMagicHourDownloadUrl(result) {
   return (
-    result?.data?.video?.url ||
-    result?.data?.video_url ||
-    result?.data?.url ||
-    result?.data?.output?.url ||
+    result?.downloads?.[0]?.url ||
+    result?.download?.url ||
+    result?.output?.[0]?.url ||
+    result?.output?.url ||
+    result?.data?.downloads?.[0]?.url ||
+    result?.data?.download?.url ||
     result?.data?.output?.[0]?.url ||
-    result?.data?.output?.[0] ||
-    result?.video?.url ||
-    result?.video_url ||
-    result?.url ||
+    result?.data?.output?.url ||
     null
   );
 }
@@ -163,7 +130,7 @@ function findVideoUrlFromFalResult(result) {
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'ReelSwapAI backend funcionando v7 con fal.ai PixVerse video',
+    message: 'ReelSwapAI backend funcionando v8 con Magic Hour video',
   });
 });
 
@@ -185,13 +152,6 @@ app.post('/detect-faces', upload.single('target'), async (req, res) => {
       'reelswapai/face-detection',
       `detect-${Date.now()}`
     );
-
-    console.log('Cloudinary detect result:', {
-      public_id: uploadResult.public_id,
-      width: uploadResult.width,
-      height: uploadResult.height,
-      faces: uploadResult.faces,
-    });
 
     const facesRaw = uploadResult.faces || [];
     const imageWidth = uploadResult.width || 1;
@@ -247,7 +207,7 @@ app.post(
     let targetUpload;
 
     try {
-      console.log('Nueva petición FaceSwap VIDEO fal.ai PixVerse');
+      console.log('Nueva petición FaceSwap VIDEO Magic Hour');
 
       const faceFile = req.files?.face?.[0];
       const targetFile = req.files?.target?.[0];
@@ -266,44 +226,48 @@ app.post(
         `face-${Date.now()}`
       );
 
-      targetUpload = await uploadVideoToCloudinaryForFal(
+      targetUpload = await uploadVideoToCloudinaryMp4(
         targetFile.buffer,
         `target-video-${Date.now()}`
       );
 
-      const falVideoUrl = targetUpload.secure_url;
-
       console.log('Face subida:', faceUpload.secure_url);
-      console.log('Video subido:', targetUpload.secure_url);
-      console.log('Video fal URL:', falVideoUrl);
+      console.log('Video Magic Hour URL:', targetUpload.secure_url);
 
-      const modelId = 'fal-ai/pixverse/swap';
-
-      console.log('Enviando petición a fal.ai:', modelId);
-
-      const submitResult = await fal.queue.submit(modelId, {
-        input: {
-          video_url: falVideoUrl,
-          image_url: faceUpload.secure_url,
-          swap_mode: 'person',
-          keyframe_id: 1,
-          original_sound_switch: true,
+      const result = await magicHour.v1.faceSwap.generate(
+        {
+          assets: {
+            imageFilePath: faceUpload.secure_url,
+            videoFilePath: targetUpload.secure_url,
+            videoSource: 'file',
+          },
+          startSeconds: 0,
+          endSeconds: 10,
+          name: `ReelSwapAI-${Date.now()}`,
         },
-      });
-
-      console.log('fal.ai requestId:', submitResult.request_id);
-
-      const falResult = await waitForFalResult(
-        modelId,
-        submitResult.request_id
+        {
+          waitForCompletion: true,
+          downloadOutputs: false,
+        }
       );
 
-      console.log('Resultado completo fal.ai:');
-      console.dir(falResult, { depth: null });
+      console.log('Resultado Magic Hour:');
+      console.dir(result, { depth: null });
 
-      const resultUrl = findVideoUrlFromFalResult(falResult);
+      if (result?.status && result.status !== 'complete') {
+        await deleteFromCloudinary(faceUpload.public_id, 'image');
+        await deleteFromCloudinary(targetUpload.public_id, 'video');
 
-      console.log('URL resultado detectada fal.ai:', resultUrl);
+        return res.status(500).json({
+          success: false,
+          error: `Magic Hour terminó con estado: ${result.status}`,
+          data: result,
+        });
+      }
+
+      const resultUrl = findMagicHourDownloadUrl(result);
+
+      console.log('URL resultado Magic Hour:', resultUrl);
 
       if (!resultUrl) {
         await deleteFromCloudinary(faceUpload.public_id, 'image');
@@ -311,8 +275,8 @@ app.post(
 
         return res.status(500).json({
           success: false,
-          error: 'No se encontró URL de vídeo en respuesta de fal.ai',
-          data: falResult,
+          error: 'No se encontró URL de vídeo en respuesta de Magic Hour',
+          data: result,
         });
       }
 
@@ -326,7 +290,7 @@ app.post(
 
         return res.status(500).json({
           success: false,
-          error: 'No se pudo descargar el vídeo generado por fal.ai',
+          error: 'No se pudo descargar el vídeo generado por Magic Hour',
           details: resultErrorText,
         });
       }
@@ -386,8 +350,6 @@ app.post(
       const targetFile = req.files?.target?.[0];
       const targetFaceIndex = Number(req.body?.targetFaceIndex ?? 0);
 
-      console.log('targetFaceIndex FOTO:', targetFaceIndex);
-
       if (!faceFile || !targetFile) {
         return res.status(400).json({
           success: false,
@@ -434,7 +396,6 @@ app.post(
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.log('Segmind image error:', errorText);
 
         await deleteFromCloudinary(faceUpload.public_id, 'image');
         await deleteFromCloudinary(targetUpload.public_id, 'image');
