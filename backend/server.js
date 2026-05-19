@@ -58,15 +58,6 @@ function uploadVideoToCloudinaryMp4(buffer, filename) {
         folder: 'reelswapai/targets',
         public_id: filename,
         overwrite: true,
-        transformation: [
-          {
-            width: 1080,
-            height: 1920,
-            crop: 'limit',
-            format: 'mp4',
-          },
-        ],
-        format: 'mp4',
       },
       (error, result) => {
         if (error) reject(error);
@@ -76,6 +67,7 @@ function uploadVideoToCloudinaryMp4(buffer, filename) {
 
     stream.end(buffer);
   });
+}
 }
 
 function uploadToCloudinaryWithFaces(buffer, folder, filename) {
