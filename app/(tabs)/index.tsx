@@ -205,8 +205,8 @@ export default function HomeScreen() {
 
       setPurchaseHistory(purchases);
     } catch (error) {
-      console.log('Error cargando historial de compras:', error);
-    }
+  console.log('Error cargando historial de compras:', error);
+}
   }
 
   async function loadGenerationHistory(userId: string) {
@@ -233,21 +233,22 @@ export default function HomeScreen() {
   }
 
   async function loadProducts() {
-    try {
-      setLoadingProducts(true);
+  try {
+    setLoadingProducts(true);
 
-      const offerings = await Purchases.getOfferings();
+    const offerings = await Purchases.getOfferings();
 
-      if (offerings.current) {
-        setPackages(offerings.current.availablePackages);
-        console.log('RevenueCat packages:', offerings.current.availablePackages);
-      }
-    } catch (error) {
-      console.log('Error cargando productos RevenueCat:', error);
-    } finally {
-      setLoadingProducts(false);
+    if (offerings.current) {
+      setPackages(offerings.current.availablePackages);
+      console.log('RevenueCat packages:', offerings.current.availablePackages);
     }
+  } catch (error) {
+    console.log('RevenueCat no disponible todavía:', error);
+    setPackages([]);
+  } finally {
+    setLoadingProducts(false);
   }
+}
 
   useEffect(() => {
     Purchases.configure({
