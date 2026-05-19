@@ -1355,37 +1355,47 @@ if (!user) {
       </ScrollView>
 
       <Modal visible={showResult} animationType="slide">
-        <View style={styles.fullscreenOverlay}>
-          <TouchableOpacity
-            style={styles.closeButton}
-            onPress={() => setShowResult(false)}
-          >
-            <Text style={styles.closeButtonText}>✕</Text>
-          </TouchableOpacity>
+  <View style={styles.fullscreenOverlay}>
+    <TouchableOpacity
+      style={styles.closeButton}
+      onPress={() => setShowResult(false)}
+    >
+      <Text style={styles.closeButtonText}>✕</Text>
+    </TouchableOpacity>
 
-          <Text style={styles.fullscreenTitle}>Resultado generado</Text>
+    <Text style={styles.fullscreenTitle}>Resultado listo</Text>
+    <Text style={styles.fullscreenSubtitle}>
+      Tu generación se ha completado correctamente.
+    </Text>
 
-          <View style={styles.fullscreenVideoBox}>
-            {resultType === 'image' && resultUrl ? (
-              <Image source={{ uri: resultUrl }} style={styles.fullscreenImage} />
-            ) : resultType === 'video' && resultUrl ? (
-              <VideoView
-                player={resultPlayer}
-                style={styles.fullscreenVideo}
-                allowsFullscreen
-                nativeControls
-                contentFit="contain"
-              />
-            ) : (
-              <Text style={styles.fakeResultText}>No hay resultado</Text>
-            )}
-          </View>
+    <View style={styles.fullscreenVideoBox}>
+      {resultType === 'image' && resultUrl ? (
+        <Image source={{ uri: resultUrl }} style={styles.fullscreenImage} />
+      ) : resultType === 'video' && resultUrl ? (
+        <VideoView
+          player={resultPlayer}
+          style={styles.fullscreenVideo}
+          allowsFullscreen
+          nativeControls
+          contentFit="contain"
+        />
+      ) : (
+        <Text style={styles.fakeResultText}>No hay resultado</Text>
+      )}
+    </View>
 
-          <TouchableOpacity style={styles.generateButton} onPress={shareResult}>
-            <Text style={styles.generateButtonText}>Compartir resultado</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
+    <TouchableOpacity style={styles.generateButton} onPress={shareResult}>
+      <Text style={styles.generateButtonText}>Compartir resultado</Text>
+    </TouchableOpacity>
+
+    <TouchableOpacity
+      style={styles.secondaryButton}
+      onPress={() => setShowResult(false)}
+    >
+      <Text style={styles.secondaryButtonText}>Nueva generación</Text>
+    </TouchableOpacity>
+  </View>
+</Modal>
 
       <Modal visible={!!previewUrl} animationType="slide" transparent={false}>
         <View style={styles.fullscreenOverlay}>
@@ -1815,6 +1825,13 @@ noticeText: {
     padding: 20,
     justifyContent: 'center',
   },
+  fullscreenSubtitle: {
+  color: '#B6B6CA',
+  fontSize: 16,
+  textAlign: 'center',
+  marginTop: 8,
+  marginBottom: 18,
+},
   closeButton: {
     position: 'absolute',
     top: 55,

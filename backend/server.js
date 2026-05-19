@@ -196,7 +196,7 @@ app.post(
           body: JSON.stringify({
             source_image: faceUpload.secure_url,
             target_video: targetUpload.secure_url,
-            pixel_boost: '1024x1024',
+            pixel_boost: '768x768',
             face_selector_mode: 'reference',
             face_selector_order: 'large-small',
             face_selector_age_start: 0,
