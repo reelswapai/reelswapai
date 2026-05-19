@@ -961,25 +961,21 @@ if (!user) {
         style={styles.container}
         contentContainerStyle={styles.content}
       >
-        {user && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Cuenta</Text>
+       <View style={styles.accountCard}>
+  <Text style={styles.accountGreeting} numberOfLines={1}>
+    Hola, {user?.displayName || user?.email?.split('@')[0] || 'Javi'}
+  </Text>
 
-            <Text style={styles.cardText}>
-              Sesión iniciada como {user.email}
-            </Text>
-
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={async () => {
-                await signOut(auth);
-                Alert.alert('Sesión cerrada');
-              }}
-            >
-              <Text style={styles.secondaryButtonText}>Cerrar sesión</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+  <TouchableOpacity
+    style={styles.logoutSmallButton}
+    onPress={async () => {
+      await signOut(auth);
+      Alert.alert('Sesión cerrada');
+    }}
+  >
+    <Text style={styles.logoutSmallText}>Salir</Text>
+  </TouchableOpacity>
+</View>
 
         <View style={styles.hero}>
           <View style={styles.topRow}>
@@ -991,12 +987,6 @@ if (!user) {
           </View>
 
           <Text style={styles.title}>ReelSwap AI</Text>
-
-          {user && (
-            <Text style={styles.userEmail}>
-              Sesión iniciada: {user.email}
-            </Text>
-          )}
 
           <Text style={styles.subtitle}>
             Cambia tu rostro en fotos y vídeos con calidad premium.
@@ -1470,7 +1460,37 @@ authContainer: {
   padding: 20,
   justifyContent: 'center',
 },
+accountCard: {
+  backgroundColor: '#11111C',
+  borderRadius: 28,
+  paddingHorizontal: 20,
+  paddingVertical: 18,
+  borderWidth: 1,
+  borderColor: 'rgba(255,255,255,0.08)',
+  marginBottom: 22,
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+},
 
+accountTitle: {
+  color: 'white',
+  fontSize: 28,
+  fontWeight: '900',
+},
+
+logoutSmallButton: {
+  backgroundColor: '#2A1F4A',
+  paddingHorizontal: 18,
+  paddingVertical: 10,
+  borderRadius: 18,
+},
+
+logoutSmallText: {
+  color: '#B28CFF',
+  fontSize: 15,
+  fontWeight: '800',
+},
 authHero: {
   marginBottom: 28,
 },
@@ -1930,6 +1950,13 @@ noticeText: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 10,
+  },
+  accountGreeting: {
+  color: 'white',
+  fontSize: 20,
+  fontWeight: '900',
+  flex: 1,
+  marginRight: 12,
   },
   faceBadgeText: {
     color: 'white',

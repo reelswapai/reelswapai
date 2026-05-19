@@ -22,7 +22,7 @@ export default function PurchaseHistory({
         <View key={item.id} style={styles.historyItem}>
           <Text style={styles.historyIcon}>🪙</Text>
 
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={styles.historyTitle}>
               Compra de tokens · +{item.tokensAdded} tokens
             </Text>
@@ -30,11 +30,11 @@ export default function PurchaseHistory({
             <Text style={styles.historySubtitle}>
               {item.packTitle || 'Pack de tokens'} · {item.price} ·{' '}
               {item.mode === 'free'
-  ? 'Gratis'
-  : item.mode === 'test'
-    ? 'Modo prueba'
-    : 'RevenueCat'}
-              {formatDate(item.createdAt)}
+                ? 'Gratis'
+                : item.mode === 'test'
+                ? 'Modo prueba'
+                : 'RevenueCat'}{' '}
+              · {formatDate(item.createdAt)}
             </Text>
           </View>
         </View>
