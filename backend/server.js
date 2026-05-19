@@ -233,13 +233,11 @@ app.post(
             videoFilePath: targetUpload.secure_url,
             videoSource: 'file',
           },
-          startSeconds: 0,
-          endSeconds: 10,
           name: `ReelSwapAI-${Date.now()}`,
         },
         {
           waitForCompletion: true,
-          downloadOutputs: false,
+          downloadOutputs: true,
         }
       );
 
