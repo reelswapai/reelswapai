@@ -254,9 +254,7 @@ app.post(
 
       const submitResult = await fal.queue.submit(modelId, {
         input: {
-        video_url: targetUpload.secure_url
-  .replace('/upload/', '/upload/w_720,h_1280,c_limit,f_mp4/')
-  .replace(/\.(mov|MOV)$/, '.mp4'),
+        video_url: falVideoUrl,
         image_url: faceUpload.secure_url,
         swap_mode: 'person',
         keyframe_id: 1,
@@ -372,12 +370,36 @@ app.post(
         `face-${Date.now()}`
       );
 
-      const targetUpload = await uploadToCloudinary(
-        targetFile.buffer,
-        'image',
-        'reelswapai/targets',
-        `target-image-${Date.now()}`
-      );
+      const targetUpload = await new Promise((resolve, reject) => {
+  const stream = cloudinary.uploader.upload_stream(
+    {
+      resource_type: 'video',
+      folder: 'reelswapai/targets',
+      public_id: `target-video-${Date.now()}`,
+      overwrite: true,
+      eager: [
+        {
+          width: 720,
+          height: 1280,
+          crop: 'limit',
+          format: 'mp4',
+        },
+      ],
+      eager_async: false,
+    },
+    (error, result) => {
+      if (error) reject(error);
+      else resolve(result);
+    }
+  );
+
+  stream.end(targetFile.buffer);
+});
+
+const falVideoUrl =
+  targetUpload.eager?.[0]?.secure_url || targetUpload.secure_url;
+
+console.log('Video fal URL:', falVideoUrl);
 
       const response = await fetch(
         'https://api.segmind.com/v1/hyperswap-image-faceswap-by-facefusion-labs',
