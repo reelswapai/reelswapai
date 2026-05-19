@@ -68,7 +68,7 @@ function uploadVideoToCloudinaryMp4(buffer, filename) {
     stream.end(buffer);
   });
 }
-}
+
 
 function uploadToCloudinaryWithFaces(buffer, folder, filename) {
   return new Promise((resolve, reject) => {
