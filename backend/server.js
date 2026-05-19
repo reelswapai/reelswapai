@@ -13,6 +13,7 @@ setGlobalDispatcher(
     bodyTimeout: 10 * 60 * 1000,
   })
 );
+
 const app = express();
 const upload = multer();
 
@@ -82,7 +83,7 @@ async function deleteFromCloudinary(publicId, resourceType) {
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'ReelSwapAI backend funcionando v4 con HyperSwap video 1a',
+    message: 'ReelSwapAI backend funcionando v5 con 1min.AI video',
   });
 });
 
@@ -162,8 +163,11 @@ app.post(
     { name: 'target', maxCount: 1 },
   ]),
   async (req, res) => {
+    let faceUpload;
+    let targetUpload;
+
     try {
-      console.log('Nueva petición FaceSwap VIDEO HyperSwap 1a');
+      console.log('Nueva petición FaceSwap VIDEO 1min.AI');
 
       const faceFile = req.files?.face?.[0];
       const targetFile = req.files?.target?.[0];
@@ -175,14 +179,14 @@ app.post(
         });
       }
 
-      const faceUpload = await uploadToCloudinary(
+      faceUpload = await uploadToCloudinary(
         faceFile.buffer,
         'image',
         'reelswapai/faces',
         `face-${Date.now()}`
       );
 
-      const targetUpload = await uploadToCloudinary(
+      targetUpload = await uploadToCloudinary(
         targetFile.buffer,
         'video',
         'reelswapai/targets',
@@ -191,42 +195,99 @@ app.post(
 
       console.log('Face subida:', faceUpload.secure_url);
       console.log('Video subido:', targetUpload.secure_url);
+      console.log('Enviando petición a 1min.AI Video Face Swap...');
 
-      console.log('Enviando petición a Segmind HyperSwap...');
+      const response = await fetch('https://api.1min.ai/api/features', {
+        method: 'POST',
+        headers: {
+          'API-KEY': process.env.ONEMIN_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'VIDEO_FACE_SWAPPER',
+          model: 'Qubico/video-toolkit',
+          conversationId: 'VIDEO_FACE_SWAPPER',
+          promptObject: {
+            targetVideoUrl: targetUpload.secure_url,
+            swapImageUrl: faceUpload.secure_url,
+          },
+        }),
+      });
 
-const response = await fetch(
-  'https://api.segmind.com/v1/video-faceswap-by-facefusion-labs',
-  {
-    method: 'POST',
-    headers: {
-      'x-api-key': process.env.SEGMIND_API_KEY,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      source_image: faceUpload.secure_url,
-      target_video: targetUpload.secure_url,
-      model_name: 'hyperswap_1a',
-      base64: false,
-    }),
-  }
-);
+      console.log('Respuesta recibida de 1min.AI:', response.status);
 
-console.log('Respuesta recibida de Segmind:', response.status);
+      const responseText = await response.text();
+      console.log('Respuesta texto 1min.AI:', responseText);
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.log('Segmind video error:', errorText);
+        await deleteFromCloudinary(faceUpload.public_id, 'image');
+        await deleteFromCloudinary(targetUpload.public_id, 'video');
+
+        return res.status(500).json({
+          success: false,
+          error: responseText,
+        });
+      }
+
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.log('No se pudo parsear JSON 1min.AI:', parseError);
 
         await deleteFromCloudinary(faceUpload.public_id, 'image');
         await deleteFromCloudinary(targetUpload.public_id, 'video');
 
         return res.status(500).json({
           success: false,
-          error: errorText,
+          error: '1min.AI no devolvió JSON válido',
+          raw: responseText,
         });
       }
 
-      const resultBuffer = Buffer.from(await response.arrayBuffer());
+      const resultUrl =
+        data?.output?.[0] ||
+        data?.output ||
+        data?.result?.[0] ||
+        data?.result ||
+        data?.videoUrl ||
+        data?.url ||
+        data?.data?.output?.[0] ||
+        data?.data?.output ||
+        data?.data?.result?.[0] ||
+        data?.data?.result ||
+        data?.data?.videoUrl ||
+        data?.data?.url;
+
+      console.log('URL resultado detectada 1min.AI:', resultUrl);
+
+      if (!resultUrl || typeof resultUrl !== 'string') {
+        await deleteFromCloudinary(faceUpload.public_id, 'image');
+        await deleteFromCloudinary(targetUpload.public_id, 'video');
+
+        return res.status(500).json({
+          success: false,
+          error: 'No se encontró URL de vídeo en respuesta de 1min.AI',
+          data,
+        });
+      }
+
+      const resultResponse = await fetch(resultUrl);
+
+      if (!resultResponse.ok) {
+        const resultErrorText = await resultResponse.text();
+
+        await deleteFromCloudinary(faceUpload.public_id, 'image');
+        await deleteFromCloudinary(targetUpload.public_id, 'video');
+
+        return res.status(500).json({
+          success: false,
+          error: 'No se pudo descargar el vídeo generado por 1min.AI',
+          details: resultErrorText,
+        });
+      }
+
+      const resultBuffer = Buffer.from(await resultResponse.arrayBuffer());
 
       const finalUpload = await uploadToCloudinary(
         resultBuffer,
@@ -247,6 +308,14 @@ console.log('Respuesta recibida de Segmind:', response.status);
     } catch (error) {
       console.log('ERROR BACKEND VIDEO FULL:');
       console.dir(error, { depth: null });
+
+      if (faceUpload?.public_id) {
+        await deleteFromCloudinary(faceUpload.public_id, 'image');
+      }
+
+      if (targetUpload?.public_id) {
+        await deleteFromCloudinary(targetUpload.public_id, 'video');
+      }
 
       return res.status(500).json({
         success: false,
