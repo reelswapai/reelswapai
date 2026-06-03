@@ -371,7 +371,7 @@ app.post(
         `target-video-${Date.now()}`
       );
 
-      const piapiVideoUrl = buildPiapiVideoUrl(targetUpload.secure_url);
+      const piapiVideoUrl = targetUpload.secure_url;
 
       console.log('Face subida:', faceUpload.secure_url);
       console.log('Video subido:', targetUpload.secure_url);
