@@ -474,10 +474,13 @@ app.post(
     let targetUpload;
 
     try {
-      console.log('Nueva petición FaceSwap FOTO PiAPI');
+      console.log('Nueva petición FaceSwap FOTO Segmind');
 
       const faceFile = req.files?.face?.[0];
       const targetFile = req.files?.target?.[0];
+      const targetFaceIndex = Number(req.body?.targetFaceIndex ?? 0);
+
+      console.log('targetFaceIndex FOTO:', targetFaceIndex);
 
       if (!faceFile || !targetFile) {
         return res.status(400).json({
@@ -486,68 +489,57 @@ app.post(
         });
       }
 
-      faceUpload = await uploadImageToCloudinaryForPiapi(
+      faceUpload = await uploadToCloudinary(
         faceFile.buffer,
+        'image',
         'reelswapai/faces',
         `face-${Date.now()}`
       );
 
-      targetUpload = await uploadImageToCloudinaryForPiapi(
+      targetUpload = await uploadToCloudinary(
         targetFile.buffer,
+        'image',
         'reelswapai/targets',
         `target-image-${Date.now()}`
       );
 
-      console.log('Face subida:', faceUpload.secure_url);
-      console.log('Imagen target subida:', targetUpload.secure_url);
+      const response = await fetch(
+        'https://api.segmind.com/v1/hyperswap-image-faceswap-by-facefusion-labs',
+        {
+          method: 'POST',
+          headers: {
+            'x-api-key': process.env.SEGMIND_API_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            source_image: faceUpload.secure_url,
+            target_image: targetUpload.secure_url,
+            face_selector_mode: 'reference',
+            face_selector_order: 'large-small',
+            face_selector_age_start: 0,
+            face_selector_age_end: 100,
+            target_face_index: targetFaceIndex,
+            reference_face_distance: 0.6,
+            reference_frame_number: 1,
+            base64: false,
+          }),
+        }
+      );
 
-      const taskId = await createPiapiTask({
-        model: 'Qubico/image-toolkit',
-        task_type: 'face-swap',
-        input: {
-          swap_image: faceUpload.secure_url,
-          target_image: targetUpload.secure_url,
-        },
-      });
-
-      console.log('PiAPI taskId foto:', taskId);
-
-      const piapiResult = await waitForPiapiTask(taskId);
-
-      console.log('Resultado completo PiAPI foto:');
-      console.dir(piapiResult, { depth: null });
-
-      const resultUrl = findOutputUrlFromPiapiResult(piapiResult);
-
-      console.log('URL resultado PiAPI foto:', resultUrl);
-
-      if (!resultUrl) {
-        await deleteFromCloudinary(faceUpload.public_id, 'image');
-        await deleteFromCloudinary(targetUpload.public_id, 'image');
-
-        return res.status(500).json({
-          success: false,
-          error: 'No se encontró URL de imagen en respuesta de PiAPI',
-          data: piapiResult,
-        });
-      }
-
-      const resultResponse = await fetch(resultUrl);
-
-      if (!resultResponse.ok) {
-        const resultErrorText = await resultResponse.text();
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.log('Segmind image error:', errorText);
 
         await deleteFromCloudinary(faceUpload.public_id, 'image');
         await deleteFromCloudinary(targetUpload.public_id, 'image');
 
         return res.status(500).json({
           success: false,
-          error: 'No se pudo descargar la imagen generada por PiAPI',
-          details: resultErrorText,
+          error: errorText,
         });
       }
 
-      const resultBuffer = Buffer.from(await resultResponse.arrayBuffer());
+      const resultBuffer = Buffer.from(await response.arrayBuffer());
 
       const finalUpload = await uploadToCloudinary(
         resultBuffer,
