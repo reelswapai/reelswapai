@@ -29,15 +29,15 @@ tokenPacks: [
   },
 ],
   costs: {
-    image: 2,
-    video: {
-      upTo10: 3,
-      upTo20: 6,
-      upTo30: 10,
-      upTo45: 16,
-      upTo60: 24,
-    },
+  image: 2,
+  video: {
+    upTo10: 6,
+    upTo20: 10,
+    upTo30: 15,
+    upTo45: 20,
+    upTo60: 25,
   },
+},
 };
 
 export function getVideoTokens(seconds: number) {
