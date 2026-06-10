@@ -1,6 +1,6 @@
 import Purchases from 'react-native-purchases';
 
-const REVENUECAT_API_KEY_IOS = 'test_nKIwWycKEudOcwnYobDKSjrWMFI';
+const REVENUECAT_API_KEY_IOS = 'appl_lpIIEFOmMnwcWvPnIhFEZVntErW';
 
 export const initRevenueCat = async (userId?: string) => {
   try {
