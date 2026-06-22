@@ -30,6 +30,42 @@ Usamos los datos para:
 - Mejorar la estabilidad y funcionamiento de la app.
 - Prevenir usos indebidos, fraude o actividad no autorizada.
 
+## Datos Faciales e Información Biométrica
+
+ReelSwapAI permite a los usuarios subir fotografías y vídeos que contienen rostros con el único propósito de generar imágenes y vídeos de intercambio facial (face swap) solicitados por el propio usuario.
+
+### ¿Qué datos faciales recopila ReelSwapAI?
+
+ReelSwapAI puede procesar fotografías y vídeos subidos por el usuario que contengan rostros o características faciales. Estos datos son proporcionados directamente por el usuario para generar el resultado solicitado.
+
+ReelSwapAI no recopila, crea ni almacena plantillas biométricas, identificadores de reconocimiento facial, mediciones faciales, huellas faciales (faceprints) ni datos utilizados para identificar o autenticar a una persona.
+
+### ¿Cómo se utilizan los datos faciales?
+
+Los datos faciales se utilizan exclusivamente para realizar la generación de face swap solicitada por el usuario.
+
+Los datos faciales no se utilizan para identificar usuarios, autenticar usuarios, elaborar perfiles, realizar seguimiento, mostrar publicidad personalizada ni entrenar modelos de inteligencia artificial o aprendizaje automático.
+
+### ¿Se comparten los datos faciales con terceros?
+
+Para proporcionar la funcionalidad de la aplicación, los datos faciales pueden ser procesados temporalmente por proveedores externos de confianza necesarios para la prestación del servicio, incluyendo servicios de almacenamiento y procesamiento multimedia como Cloudinary, y proveedores de inteligencia artificial como Segmind y PiAPI.
+
+Estos proveedores procesan los archivos únicamente para completar la generación solicitada por el usuario. ReelSwapAI no vende datos faciales ni permite que terceros los utilicen para fines publicitarios o para entrenar sus propios modelos de inteligencia artificial.
+
+### ¿Dónde se almacenan los datos faciales?
+
+Las fotografías y vídeos subidos pueden almacenarse temporalmente en infraestructuras seguras en la nube únicamente para procesar la generación solicitada por el usuario.
+
+### ¿Durante cuánto tiempo se conservan los datos faciales?
+
+Los datos faciales no se conservan de forma indefinida. Las fotografías de origen, imágenes faciales y vídeos utilizados para la generación se eliminan una vez completado el procesamiento o poco tiempo después como parte del funcionamiento normal del servicio.
+
+ReelSwapAI no almacena permanentemente datos faciales, plantillas biométricas, datos de reconocimiento facial, mediciones faciales ni huellas faciales.
+
+### Responsabilidad del usuario
+
+Los usuarios únicamente deben subir imágenes y vídeos propios o para los que dispongan de autorización expresa. El usuario es responsable de obtener cualquier consentimiento necesario de las personas que aparezcan en el contenido subido.
+
 ## Fotos, vídeos y procesamiento con IA
 
 Las fotos y vídeos seleccionados por el usuario se suben únicamente cuando son necesarios para generar el resultado solicitado.
