@@ -2,10 +2,82 @@ import { v2 as cloudinary } from 'cloudinary';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
+import { cert, getApps, initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
 import multer from 'multer';
 import { Agent, setGlobalDispatcher } from 'undici';
 
 dotenv.config();
+
+// Firebase Admin
+const firebaseServiceAccountBase64 =
+  process.env.FIREBASE_SERVICE_ACCOUNT_B64;
+
+if (!firebaseServiceAccountBase64) {
+  throw new Error('Falta FIREBASE_SERVICE_ACCOUNT_B64');
+}
+
+const firebaseServiceAccount = JSON.parse(
+  Buffer.from(firebaseServiceAccountBase64, 'base64').toString('utf8')
+);
+
+if (getApps().length === 0) {
+  initializeApp({
+    credential: cert(firebaseServiceAccount),
+  });
+}
+
+const adminAuth = getAuth();
+const adminDb = getFirestore();
+
+console.log('Firebase Admin inicializado correctamente');
+
+async function requireFirebaseAuth(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization || '';
+
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        error: 'No autorizado',
+      });
+    }
+
+    const idToken = authHeader.substring(7);
+
+    const decodedToken = await adminAuth.verifyIdToken(idToken);
+
+    req.firebaseUser = decodedToken;
+
+    next();
+  } catch (error) {
+    console.error('Error verificando Firebase token:', error?.message || error);
+
+    return res.status(401).json({
+      success: false,
+      error: 'Token de autenticación inválido',
+    });
+  }
+}
+
+async function deleteCollectionInBatches(collectionRef) {
+  while (true) {
+    const snapshot = await collectionRef.limit(400).get();
+
+    if (snapshot.empty) {
+      break;
+    }
+
+    const batch = adminDb.batch();
+
+    snapshot.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+
+    await batch.commit();
+  }
+}
 
 setGlobalDispatcher(
   new Agent({
@@ -604,6 +676,54 @@ app.post('/delete-cloudinary-result', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+app.delete('/delete-account', requireFirebaseAuth, async (req, res) => {
+  try {
+    const uid = req.firebaseUser.uid;
+
+    console.log('Eliminando cuenta:', uid);
+
+    const userRef = adminDb.collection('users').doc(uid);
+
+    // Borrar historial de generaciones
+    await deleteCollectionInBatches(
+      userRef.collection('history')
+    );
+
+    // Borrar historial de compras
+    await deleteCollectionInBatches(
+      userRef.collection('purchaseHistory')
+    );
+
+    // Borrar documento principal del usuario
+    await userRef.delete();
+
+    // Borrar usuario de Firebase Authentication
+    try {
+      await adminAuth.deleteUser(uid);
+    } catch (authError) {
+      if (authError?.code !== 'auth/user-not-found') {
+        throw authError;
+      }
+    }
+
+    console.log('Cuenta eliminada correctamente:', uid);
+
+    return res.json({
+      success: true,
+      message: 'Cuenta eliminada correctamente',
+    });
+  } catch (error) {
+    console.error(
+      'ERROR DELETE ACCOUNT:',
+      error?.message || error
+    );
+
+    return res.status(500).json({
+      success: false,
+      error: 'No se ha podido eliminar la cuenta',
+    });
+  }
+});
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor funcionando en puerto ${PORT}`);

@@ -831,7 +831,69 @@ if (APP_CONFIG.useRevenueCat) {
       setGenerating(false);
     }
   }
+async function handleDeleteAccount() {
+  if (!user) {
+    return;
+  }
 
+  Alert.alert(
+    'Eliminar cuenta',
+    'Esta acción eliminará permanentemente tu cuenta, tus tokens y tu historial. No se puede deshacer.',
+    [
+      {
+        text: 'Cancelar',
+        style: 'cancel',
+      },
+      {
+        text: 'Eliminar',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const idToken = await user.getIdToken();
+
+            const response = await fetch(
+              `${APP_CONFIG.backendUrl}/delete-account`,
+              {
+                method: 'DELETE',
+                headers: {
+                  Authorization: `Bearer ${idToken}`,
+                  'Content-Type': 'application/json',
+                },
+              }
+            );
+
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+              throw new Error(
+                result?.error || 'No se ha podido eliminar la cuenta'
+              );
+            }
+
+            await signOut(auth);
+
+            setTokens(0);
+            setPurchaseHistory([]);
+            setGenerationHistory([]);
+
+            Alert.alert(
+              'Cuenta eliminada',
+              'Tu cuenta se ha eliminado correctamente.'
+            );
+          } catch (error: any) {
+            console.log('ERROR DELETE ACCOUNT:', error);
+
+            Alert.alert(
+              'Error',
+              error?.message ||
+                'No se ha podido eliminar la cuenta.'
+            );
+          }
+        },
+      },
+    ]
+  );
+}
   async function shareResult() {
     try {
       const fileToShare = resultUrl || targetFile;
@@ -983,6 +1045,26 @@ if (!user) {
   >
     <Text style={styles.logoutSmallText}>Salir</Text>
   </TouchableOpacity>
+  <TouchableOpacity
+  onPress={handleDeleteAccount}
+  style={{
+    marginTop: 12,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ff4d4f',
+    alignItems: 'center',
+  }}
+>
+  <Text
+    style={{
+      color: '#ff4d4f',
+      fontWeight: '700',
+    }}
+  >
+    Eliminar cuenta
+  </Text>
+</TouchableOpacity>
 </View>
 
         <View style={styles.hero}>
