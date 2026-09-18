@@ -7,6 +7,12 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import multer from 'multer';
 import { Agent, setGlobalDispatcher } from 'undici';
+import {
+  createDeepSwapMaterial,
+  createDeepSwapTask,
+  waitForDeepSwapMaterial,
+  waitForDeepSwapTask,
+} from './providers/deepswap.js';
 
 dotenv.config();
 
@@ -728,3 +734,160 @@ app.delete('/delete-account', requireFirebaseAuth, async (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor funcionando en puerto ${PORT}`);
 });
+app.post(
+  '/deepswap-image-test',
+  upload.fields([
+    { name: 'face', maxCount: 1 },
+    { name: 'target', maxCount: 1 },
+  ]),
+  async (req, res) => {
+    let faceUpload = null;
+    let targetUpload = null;
+
+    try {
+      console.log('Nueva petición DeepSwap FOTO TEST');
+
+      const faceFile = req.files?.face?.[0];
+      const targetFile = req.files?.target?.[0];
+
+      if (!faceFile || !targetFile) {
+        return res.status(400).json({
+          success: false,
+          error: 'Faltan face o target',
+        });
+      }
+
+      // 1. Subir cara a Cloudinary
+      faceUpload = await uploadToCloudinary(
+        faceFile.buffer,
+        'reelswapai/deepswap/faces',
+        'image'
+      );
+
+      // 2. Subir imagen destino a Cloudinary
+      targetUpload = await uploadToCloudinary(
+        targetFile.buffer,
+        'reelswapai/deepswap/targets',
+        'image'
+      );
+
+      console.log('Face URL:', faceUpload.secure_url);
+      console.log('Target URL:', targetUpload.secure_url);
+
+      // 3. Crear material en DeepSwap con la imagen target
+      const materialCreate = await createDeepSwapMaterial(
+        targetUpload.secure_url
+      );
+
+      const materialId =
+        materialCreate?.materialId ||
+        materialCreate?.data?.materialId;
+
+      if (!materialId) {
+        throw new Error(
+          `DeepSwap no devolvió materialId: ${JSON.stringify(materialCreate)}`
+        );
+      }
+
+      console.log('DeepSwap materialId:', materialId);
+
+      // 4. Esperar preprocessing
+      const material = await waitForDeepSwapMaterial(materialId);
+
+      const faces =
+        material?.faces ||
+        material?.data?.faces ||
+        [];
+
+      if (!faces.length) {
+        throw new Error(
+          `DeepSwap no detectó caras en el target: ${JSON.stringify(material)}`
+        );
+      }
+
+      // Para esta primera prueba cogemos la primera cara detectada
+      const sourceFaceId =
+        faces[0]?.faceId ||
+        faces[0]?.sourceFaceId ||
+        faces[0]?.id;
+
+      if (sourceFaceId === undefined || sourceFaceId === null) {
+        throw new Error(
+          `No se encontró sourceFaceId: ${JSON.stringify(faces[0])}`
+        );
+      }
+
+      console.log('DeepSwap sourceFaceId:', sourceFaceId);
+
+      // 5. Crear tarea de face swap
+      const taskCreate = await createDeepSwapTask({
+        materialId,
+        sourceFaceId,
+        targetFaceUrl: faceUpload.secure_url,
+        model: 'shapefusion1.0-fs',
+        faceEnhance: true,
+      });
+
+      const taskId =
+        taskCreate?.taskId ||
+        taskCreate?.data?.taskId;
+
+      if (!taskId) {
+        throw new Error(
+          `DeepSwap no devolvió taskId: ${JSON.stringify(taskCreate)}`
+        );
+      }
+
+      console.log('DeepSwap taskId:', taskId);
+
+      // 6. Esperar resultado
+      const task = await waitForDeepSwapTask(taskId);
+
+      const imageUrls =
+        task?.imageUrls ||
+        task?.data?.imageUrls ||
+        task?.result?.imageUrls ||
+        [];
+
+      const resultUrl = imageUrls?.[0];
+
+      if (!resultUrl) {
+        throw new Error(
+          `DeepSwap no devolvió imageUrls: ${JSON.stringify(task)}`
+        );
+      }
+
+      console.log('DeepSwap resultado:', resultUrl);
+
+      return res.json({
+        success: true,
+        provider: 'deepswap',
+        materialId,
+        taskId,
+        resultUrl,
+      });
+    } catch (error) {
+      console.error('ERROR DEEPSWAP IMAGE TEST:', error);
+
+      return res.status(500).json({
+        success: false,
+        error: error?.message || String(error),
+      });
+    } finally {
+      try {
+        if (faceUpload?.public_id) {
+          await deleteFromCloudinary(faceUpload.public_id, 'image');
+        }
+
+        if (targetUpload?.public_id) {
+          await deleteFromCloudinary(targetUpload.public_id, 'image');
+        }
+      } catch (cleanupError) {
+        console.error(
+          'Error limpiando temporales DeepSwap:',
+          cleanupError
+        );
+      }
+    }
+  }
+);

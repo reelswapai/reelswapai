@@ -1043,7 +1043,7 @@ if (!user) {
       Alert.alert('Sesión cerrada');
     }}
   >
-    <Text style={styles.logoutSmallText}>Salir</Text>
+    <Text style={styles.logoutSmallText}>Salir Test</Text>
   </TouchableOpacity>
   <TouchableOpacity
   onPress={handleDeleteAccount}
