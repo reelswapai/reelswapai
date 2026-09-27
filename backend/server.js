@@ -843,19 +843,20 @@ targetUpload = await uploadToCloudinary(
       // 6. Esperar resultado
       const task = await waitForDeepSwapTask(taskId);
 
-      const imageUrls =
-        task?.imageUrls ||
-        task?.data?.imageUrls ||
-        task?.result?.imageUrls ||
-        [];
+     const resultUrl =
+  task?.imageUrl ||
+  task?.videoUrl ||
+  task?.resultUrl ||
+  task?.data?.imageUrl ||
+  task?.data?.videoUrl ||
+  task?.data?.resultUrl ||
+  (Array.isArray(task?.imageUrls) ? task.imageUrls[0] : null);
 
-      const resultUrl = imageUrls?.[0];
-
-      if (!resultUrl) {
-        throw new Error(
-          `DeepSwap no devolvió imageUrls: ${JSON.stringify(task)}`
-        );
-      }
+if (!resultUrl) {
+  throw new Error(
+    `DeepSwap no devolvió URL final: ${JSON.stringify(task)}`
+  );
+}
 
       console.log('DeepSwap resultado:', resultUrl);
 
