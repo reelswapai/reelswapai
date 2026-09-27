@@ -757,19 +757,19 @@ app.post(
         });
       }
 
-      // 1. Subir cara a Cloudinary
-      faceUpload = await uploadToCloudinary(
-        faceFile.buffer,
-        'reelswapai/deepswap/faces',
-        'image'
-      );
+     faceUpload = await uploadToCloudinary(
+  faceFile.buffer,
+  'image',
+  'reelswapai/deepswap/faces',
+  `face-${Date.now()}`
+);
 
-      // 2. Subir imagen destino a Cloudinary
-      targetUpload = await uploadToCloudinary(
-        targetFile.buffer,
-        'reelswapai/deepswap/targets',
-        'image'
-      );
+targetUpload = await uploadToCloudinary(
+  targetFile.buffer,
+  'image',
+  'reelswapai/deepswap/targets',
+  `target-${Date.now()}`
+);
 
       console.log('Face URL:', faceUpload.secure_url);
       console.log('Target URL:', targetUpload.secure_url);
