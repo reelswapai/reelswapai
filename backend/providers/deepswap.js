@@ -97,10 +97,10 @@ export async function createDeepSwapTask({
     method: 'POST',
     body: JSON.stringify({
       model,
-      materialId: Number(materialId),
+      materialId,
       faceMappings: [
         {
-          sourceFaceId: Number(sourceFaceId),
+          sourceFaceId,
           targetFaceUrl,
         },
       ],
