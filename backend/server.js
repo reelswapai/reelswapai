@@ -568,18 +568,18 @@ app.post(
       }
 
       faceUpload = await uploadToCloudinary(
-        faceFile.buffer,
-        'image',
-        'reelswapai/faces',
-        `face-${Date.now()}`
-      );
+  faceFile.buffer,
+  'image',
+  'reelswapai/deepswap/faces',
+  `face-${Date.now()}`
+);
 
       targetUpload = await uploadToCloudinary(
-        targetFile.buffer,
-        'image',
-        'reelswapai/targets',
-        `target-image-${Date.now()}`
-      );
+  targetFile.buffer,
+  'image',
+  'reelswapai/deepswap/targets',
+  `target-${Date.now()}`
+);
 
       const response = await fetch(
         'https://api.segmind.com/v1/hyperswap-image-faceswap-by-facefusion-labs',
