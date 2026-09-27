@@ -730,6 +730,23 @@ app.delete('/delete-account', requireFirebaseAuth, async (req, res) => {
     });
   }
 });
+app.post('/deepswap-callback', express.json({ limit: '10mb' }), (req, res) => {
+  try {
+    console.log(
+      'DEEPSWAP CALLBACK:',
+      JSON.stringify(req.body, null, 2)
+    );
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('ERROR DEEPSWAP CALLBACK:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: error?.message || String(error),
+    });
+  }
+});
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor funcionando en puerto ${PORT}`);

@@ -105,6 +105,7 @@ export async function createDeepSwapTask({
         },
       ],
       faceEnhance,
+      callbackUrl: 'https://reelswapai-production.up.railway.app/deepswap-callback',
     }),
   });
 }
