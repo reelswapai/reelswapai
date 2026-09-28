@@ -13,10 +13,10 @@ import { Agent, setGlobalDispatcher } from 'undici';
 import {
   createDeepSwapMaterial,
   createDeepSwapTask,
+  getDeepSwapFaceSwapTask,
   saveDeepSwapCallback,
   waitForDeepSwapMaterial,
   waitForDeepSwapTask
-  getDeepSwapFaceSwapTask
 } from './providers/deepswap.js';
 
 dotenv.config();
