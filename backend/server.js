@@ -747,7 +747,157 @@ app.post('/deepswap-callback', express.json({ limit: '10mb' }), (req, res) => {
     });
   }
 });
+app.post(
+  '/deepswap-video-test',
+  upload.fields([
+    { name: 'face', maxCount: 1 },
+    { name: 'target', maxCount: 1 },
+  ]),
+  async (req, res) => {
+    let faceUpload = null;
+    let targetUpload = null;
 
+    try {
+      console.log('Nueva petición DeepSwap VIDEO TEST');
+
+      const faceFile = req.files?.face?.[0];
+      const targetFile = req.files?.target?.[0];
+
+      if (!faceFile || !targetFile) {
+        return res.status(400).json({
+          success: false,
+          error: 'Faltan face o target',
+        });
+      }
+
+      // 1. Subir la cara a Cloudinary
+      faceUpload = await uploadToCloudinary(
+        faceFile.buffer,
+        'image',
+        'reelswapai/deepswap/video-faces',
+        `face-${Date.now()}`
+      );
+
+      // 2. Subir el vídeo destino a Cloudinary
+      targetUpload = await uploadToCloudinary(
+        targetFile.buffer,
+        'video',
+        'reelswapai/deepswap/video-targets',
+        `video-${Date.now()}`
+      );
+
+      console.log('Face URL:', faceUpload.secure_url);
+      console.log('Video URL:', targetUpload.secure_url);
+
+      // 3. Crear material DeepSwap
+      const materialCreate = await createDeepSwapMaterial(
+        targetUpload.secure_url
+      );
+
+      const materialId =
+        materialCreate?.materialId ||
+        materialCreate?.data?.materialId;
+
+      if (!materialId) {
+        throw new Error(
+          `DeepSwap no devolvió materialId: ${JSON.stringify(materialCreate)}`
+        );
+      }
+
+      console.log('DeepSwap VIDEO materialId:', materialId);
+
+      // 4. Esperar al análisis del vídeo
+      const material = await waitForDeepSwapMaterial(materialId);
+
+      const faces =
+        material?.faces ||
+        material?.data?.faces ||
+        [];
+
+      if (!faces.length) {
+        throw new Error(
+          `DeepSwap no detectó caras en el vídeo: ${JSON.stringify(material)}`
+        );
+      }
+
+      const sourceFaceId = faces[0]?.id;
+
+      if (!sourceFaceId) {
+        throw new Error(
+          `No se encontró sourceFaceId: ${JSON.stringify(faces[0])}`
+        );
+      }
+
+      console.log('DeepSwap VIDEO sourceFaceId:', sourceFaceId);
+
+      // 5. Crear face swap
+      const taskCreate = await createDeepSwapTask({
+        materialId,
+        sourceFaceId,
+        targetFaceUrl: faceUpload.secure_url,
+        model: 'shapefusion1.0-fs',
+        faceEnhance: true,
+      });
+
+      const taskId =
+        taskCreate?.taskId ||
+        taskCreate?.data?.taskId;
+
+      if (!taskId) {
+        throw new Error(
+          `DeepSwap no devolvió taskId: ${JSON.stringify(taskCreate)}`
+        );
+      }
+
+      console.log('DeepSwap VIDEO taskId:', taskId);
+
+      // 6. Esperar resultado
+      const task = await waitForDeepSwapTask(taskId);
+
+      const resultUrl =
+        task?.videoUrl ||
+        task?.data?.videoUrl;
+
+      if (!resultUrl) {
+        throw new Error(
+          `DeepSwap no devolvió videoUrl: ${JSON.stringify(task)}`
+        );
+      }
+
+      console.log('DeepSwap VIDEO resultado:', resultUrl);
+
+      return res.json({
+        success: true,
+        provider: 'deepswap',
+        materialId,
+        taskId,
+        resultUrl,
+      });
+    } catch (error) {
+      console.error('ERROR DEEPSWAP VIDEO TEST:', error);
+
+      return res.status(500).json({
+        success: false,
+        error: error?.message || String(error),
+      });
+    } finally {
+      try {
+        if (faceUpload?.public_id) {
+          await deleteFromCloudinary(faceUpload.public_id, 'image');
+        }
+
+        if (targetUpload?.public_id) {
+          await deleteFromCloudinary(targetUpload.public_id, 'video');
+        }
+      } catch (cleanupError) {
+        console.error(
+          'Error limpiando temporales DeepSwap VIDEO:',
+          cleanupError
+        );
+      }
+    }
+  }
+);
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor funcionando en puerto ${PORT}`);
 });
