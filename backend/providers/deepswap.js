@@ -564,3 +564,11 @@ export async function waitForDeepSwapTask(
     'Timeout esperando resultado final de DeepSwap'
   );
 }
+export async function getDeepSwapFaceSwapTask(taskId) {
+  return deepswapRequest(
+    `/openapi/v1/face-swap/tasks/${taskId}`,
+    {
+      method: 'GET',
+    }
+  );
+}

@@ -15,7 +15,8 @@ import {
   createDeepSwapTask,
   saveDeepSwapCallback,
   waitForDeepSwapMaterial,
-  waitForDeepSwapTask,
+  waitForDeepSwapTask
+  getDeepSwapFaceSwapTask
 } from './providers/deepswap.js';
 
 dotenv.config();
@@ -1117,6 +1118,48 @@ app.post(
           cleanupError
         );
       }
+    }
+  }
+);
+app.get(
+  '/deepswap-debug/:taskId',
+  async (req, res) => {
+    try {
+      const { taskId } = req.params;
+
+      const result =
+        await getDeepSwapFaceSwapTask(
+          taskId
+        );
+
+      console.log(
+        'DEEPSWAP FACE-SWAP TASK DEBUG:'
+      );
+
+      console.log(
+        JSON.stringify(
+          result,
+          null,
+          2
+        )
+      );
+
+      return res.json({
+        success: true,
+        result,
+      });
+    } catch (error) {
+      console.error(
+        'DEEPSWAP DEBUG ERROR:',
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          error?.message ||
+          String(error),
+      });
     }
   }
 );
