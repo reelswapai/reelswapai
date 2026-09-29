@@ -235,8 +235,10 @@ app.get('/', (req, res) => {
 });
 
 app.post('/detect-faces', upload.single('target'), async (req, res) => {
+  let targetUpload = null;
+
   try {
-    console.log('Nueva petición detect-faces');
+    console.log('Nueva petición detect-faces con DeepSwap');
 
     const targetFile = req.file;
 
@@ -247,59 +249,101 @@ app.post('/detect-faces', upload.single('target'), async (req, res) => {
       });
     }
 
-    const uploadResult = await uploadToCloudinaryWithFaces(
-      targetFile.buffer,
-      'reelswapai/face-detection',
-      `detect-${Date.now()}-${randomUUID()}`
-    );
+    const isVideo = String(targetFile.mimetype || '').startsWith('video/');
 
-    console.log('Cloudinary detect result:', {
-      public_id: uploadResult.public_id,
-      width: uploadResult.width,
-      height: uploadResult.height,
-      faces: uploadResult.faces,
+    targetUpload = await uploadToR2(targetFile.buffer, {
+      folder: isVideo
+        ? 'reelswapai/deepswap/detection-videos'
+        : 'reelswapai/deepswap/detection-images',
+      filename: `detect-${Date.now()}-${randomUUID()}`,
+      contentType:
+        targetFile.mimetype ||
+        (isVideo ? 'video/mp4' : 'image/jpeg'),
+      fallbackExtension: isVideo ? 'mp4' : 'jpg',
     });
 
-    const facesRaw = uploadResult.faces || [];
-    const imageWidth = uploadResult.width || 1;
-    const imageHeight = uploadResult.height || 1;
+    console.log('Detect target R2:', targetUpload.key);
 
-    const faces = facesRaw
+    const materialCreate = await createDeepSwapMaterial(
+      targetUpload.signedUrl
+    );
+
+    const materialId =
+      materialCreate?.materialId ||
+      materialCreate?.data?.materialId;
+
+    if (!materialId) {
+      throw new Error(
+        `DeepSwap no devolvió materialId: ${JSON.stringify(materialCreate)}`
+      );
+    }
+
+    console.log('DeepSwap DETECT materialId:', materialId);
+
+    const material = await waitForDeepSwapMaterial(materialId);
+
+    const rawFaces =
+      material?.faces ||
+      material?.data?.faces ||
+      [];
+
+    const faces = rawFaces
       .map((face, index) => {
-        const [x, y, width, height] = face;
+        const id =
+          face?.id ??
+          face?.faceId ??
+          face?.sourceFaceId;
+
+        if (id === undefined || id === null) {
+          return null;
+        }
 
         return {
           index,
-          x: x / imageWidth,
-          y: y / imageHeight,
-          width: width / imageWidth,
-          height: height / imageHeight,
-          area: width * height,
+          id: String(id),
+          url:
+            face?.url ||
+            face?.imageUrl ||
+            face?.faceUrl ||
+            null,
         };
       })
-      .sort((a, b) => b.area - a.area)
-      .map((face, index) => ({
-        index,
-        x: face.x,
-        y: face.y,
-        width: face.width,
-        height: face.height,
-      }));
+      .filter(Boolean);
 
-    await deleteFromCloudinary(uploadResult.public_id, 'image');
+    console.log(
+      'DeepSwap DETECT caras:',
+      faces.map((face) => ({
+        index: face.index,
+        id: face.id,
+        hasUrl: !!face.url,
+      }))
+    );
 
     return res.json({
       success: true,
+      provider: 'deepswap',
+      materialId: String(materialId),
       faces,
     });
   } catch (error) {
-    console.log('ERROR DETECT FACES:');
+    console.log('ERROR DETECT FACES DEEPSWAP:');
     console.dir(error, { depth: null });
 
     return res.status(500).json({
       success: false,
-      error: error?.message || error,
+      error: error?.message || String(error),
     });
+  } finally {
+    try {
+      if (targetUpload?.key) {
+        await deleteFromR2(targetUpload.key);
+      }
+    } catch (cleanupError) {
+      console.error(
+        'Error limpiando temporal de detección:',
+        cleanupError
+      );
+    }
   }
 });
 
@@ -319,13 +363,28 @@ app.post(
       const faceFile = req.files?.face?.[0];
       const targetFile = req.files?.target?.[0];
       const targetFaceIndex = Number(req.body?.targetFaceIndex ?? 0);
+      const existingMaterialId = req.body?.materialId
+        ? String(req.body.materialId)
+        : null;
+      const requestedSourceFaceId = req.body?.sourceFaceId
+        ? String(req.body.sourceFaceId)
+        : null;
 
       console.log('targetFaceIndex VIDEO:', targetFaceIndex);
+      console.log('materialId reutilizado VIDEO:', existingMaterialId);
+      console.log('sourceFaceId seleccionado VIDEO:', requestedSourceFaceId);
 
-      if (!faceFile || !targetFile) {
+      if (!faceFile) {
         return res.status(400).json({
           success: false,
-          error: 'Faltan archivos face o target',
+          error: 'Falta archivo face',
+        });
+      }
+
+      if (!existingMaterialId && !targetFile) {
+        return res.status(400).json({
+          success: false,
+          error: 'Falta archivo target o materialId',
         });
       }
 
@@ -336,55 +395,60 @@ app.post(
         fallbackExtension: 'jpg',
       });
 
-      targetUpload = await uploadToR2(targetFile.buffer, {
-        folder: 'reelswapai/deepswap/video-targets',
-        filename: `video-${Date.now()}-${randomUUID()}`,
-        contentType: targetFile.mimetype || 'video/mp4',
-        fallbackExtension: 'mp4',
-      });
-
       console.log('Face R2:', faceUpload.key);
-      console.log('Video R2:', targetUpload.key);
 
-      const materialCreate = await createDeepSwapMaterial(
-        targetUpload.signedUrl
-      );
-
-      const materialId =
-        materialCreate?.materialId ||
-        materialCreate?.data?.materialId;
+      let materialId = existingMaterialId;
+      let sourceFaceId = requestedSourceFaceId;
 
       if (!materialId) {
-        throw new Error(
-          `DeepSwap no devolvió materialId: ${JSON.stringify(materialCreate)}`
+        targetUpload = await uploadToR2(targetFile.buffer, {
+          folder: 'reelswapai/deepswap/video-targets',
+          filename: `video-${Date.now()}-${randomUUID()}`,
+          contentType: targetFile.mimetype || 'video/mp4',
+          fallbackExtension: 'mp4',
+        });
+
+        console.log('Video R2:', targetUpload.key);
+
+        const materialCreate = await createDeepSwapMaterial(
+          targetUpload.signedUrl
         );
+
+        materialId =
+          materialCreate?.materialId ||
+          materialCreate?.data?.materialId;
+
+        if (!materialId) {
+          throw new Error(
+            `DeepSwap no devolvió materialId: ${JSON.stringify(materialCreate)}`
+          );
+        }
       }
 
       console.log('DeepSwap VIDEO materialId:', materialId);
 
-      const material = await waitForDeepSwapMaterial(materialId);
+      if (!sourceFaceId) {
+        const material = await waitForDeepSwapMaterial(materialId);
+        const faces = material?.faces || material?.data?.faces || [];
 
-      const faces = material?.faces || material?.data?.faces || [];
+        if (!faces.length) {
+          throw new Error(
+            `DeepSwap no detectó caras en el vídeo: ${JSON.stringify(material)}`
+          );
+        }
 
-      if (!faces.length) {
-        throw new Error(
-          `DeepSwap no detectó caras en el vídeo: ${JSON.stringify(material)}`
-        );
+        console.log('DeepSwap VIDEO caras detectadas:', faces.length);
+
+        const selectedFace = faces[targetFaceIndex] || faces[0];
+
+        sourceFaceId =
+          selectedFace?.faceId ??
+          selectedFace?.sourceFaceId ??
+          selectedFace?.id;
       }
 
-      console.log('DeepSwap VIDEO caras detectadas:', faces.length);
-
-      const selectedFace = faces[targetFaceIndex] || faces[0];
-
-      const sourceFaceId =
-        selectedFace?.faceId ??
-        selectedFace?.sourceFaceId ??
-        selectedFace?.id;
-
       if (sourceFaceId === undefined || sourceFaceId === null) {
-        throw new Error(
-          `No se encontró sourceFaceId: ${JSON.stringify(selectedFace)}`
-        );
+        throw new Error('No se encontró sourceFaceId para el vídeo');
       }
 
       console.log('DeepSwap VIDEO sourceFaceId:', sourceFaceId);
@@ -508,13 +572,28 @@ app.post(
       const faceFile = req.files?.face?.[0];
       const targetFile = req.files?.target?.[0];
       const targetFaceIndex = Number(req.body?.targetFaceIndex ?? 0);
+      const existingMaterialId = req.body?.materialId
+        ? String(req.body.materialId)
+        : null;
+      const requestedSourceFaceId = req.body?.sourceFaceId
+        ? String(req.body.sourceFaceId)
+        : null;
 
       console.log('targetFaceIndex FOTO:', targetFaceIndex);
+      console.log('materialId reutilizado FOTO:', existingMaterialId);
+      console.log('sourceFaceId seleccionado FOTO:', requestedSourceFaceId);
 
-      if (!faceFile || !targetFile) {
+      if (!faceFile) {
         return res.status(400).json({
           success: false,
-          error: 'Faltan archivos face o target',
+          error: 'Falta archivo face',
+        });
+      }
+
+      if (!existingMaterialId && !targetFile) {
+        return res.status(400).json({
+          success: false,
+          error: 'Falta archivo target o materialId',
         });
       }
 
@@ -525,55 +604,60 @@ app.post(
         fallbackExtension: 'jpg',
       });
 
-      targetUpload = await uploadToR2(targetFile.buffer, {
-        folder: 'reelswapai/deepswap/targets',
-        filename: `target-${Date.now()}-${randomUUID()}`,
-        contentType: targetFile.mimetype || 'image/jpeg',
-        fallbackExtension: 'jpg',
-      });
-
       console.log('Face R2:', faceUpload.key);
-      console.log('Target R2:', targetUpload.key);
 
-      const materialCreate = await createDeepSwapMaterial(
-        targetUpload.signedUrl
-      );
-
-      const materialId =
-        materialCreate?.materialId ||
-        materialCreate?.data?.materialId;
+      let materialId = existingMaterialId;
+      let sourceFaceId = requestedSourceFaceId;
 
       if (!materialId) {
-        throw new Error(
-          `DeepSwap no devolvió materialId: ${JSON.stringify(materialCreate)}`
+        targetUpload = await uploadToR2(targetFile.buffer, {
+          folder: 'reelswapai/deepswap/targets',
+          filename: `target-${Date.now()}-${randomUUID()}`,
+          contentType: targetFile.mimetype || 'image/jpeg',
+          fallbackExtension: 'jpg',
+        });
+
+        console.log('Target R2:', targetUpload.key);
+
+        const materialCreate = await createDeepSwapMaterial(
+          targetUpload.signedUrl
         );
+
+        materialId =
+          materialCreate?.materialId ||
+          materialCreate?.data?.materialId;
+
+        if (!materialId) {
+          throw new Error(
+            `DeepSwap no devolvió materialId: ${JSON.stringify(materialCreate)}`
+          );
+        }
       }
 
       console.log('DeepSwap IMAGE materialId:', materialId);
 
-      const material = await waitForDeepSwapMaterial(materialId);
+      if (!sourceFaceId) {
+        const material = await waitForDeepSwapMaterial(materialId);
+        const faces = material?.faces || material?.data?.faces || [];
 
-      const faces = material?.faces || material?.data?.faces || [];
+        if (!faces.length) {
+          throw new Error(
+            `DeepSwap no detectó caras en el target: ${JSON.stringify(material)}`
+          );
+        }
 
-      if (!faces.length) {
-        throw new Error(
-          `DeepSwap no detectó caras en el target: ${JSON.stringify(material)}`
-        );
+        console.log('DeepSwap IMAGE caras detectadas:', faces.length);
+
+        const selectedFace = faces[targetFaceIndex] || faces[0];
+
+        sourceFaceId =
+          selectedFace?.faceId ??
+          selectedFace?.sourceFaceId ??
+          selectedFace?.id;
       }
 
-      console.log('DeepSwap IMAGE caras detectadas:', faces.length);
-
-      const selectedFace = faces[targetFaceIndex] || faces[0];
-
-      const sourceFaceId =
-        selectedFace?.faceId ??
-        selectedFace?.sourceFaceId ??
-        selectedFace?.id;
-
       if (sourceFaceId === undefined || sourceFaceId === null) {
-        throw new Error(
-          `No se encontró sourceFaceId: ${JSON.stringify(selectedFace)}`
-        );
+        throw new Error('No se encontró sourceFaceId para la imagen');
       }
 
       console.log('DeepSwap IMAGE sourceFaceId:', sourceFaceId);
