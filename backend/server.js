@@ -1,5 +1,4 @@
 import { randomUUID } from 'crypto';
-import { v2 as cloudinary } from 'cloudinary';
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import cors from 'cors';
@@ -103,13 +102,8 @@ const upload = multer();
 app.use(cors());
 app.use(express.json());
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
 
-// Cloudflare R2 (S3 compatible). Cloudinary remains temporarily only for face detection.
+// Cloudflare R2 (S3 compatible). Se usa solo para archivos temporales de entrada.
 const r2 = new S3Client({
   region: 'auto',
   endpoint: process.env.R2_ENDPOINT,
@@ -186,51 +180,11 @@ async function deleteFromR2(key) {
   }
 }
 
-function buildBackendObjectUrl(req, key) {
-  const forwardedProto = req.headers['x-forwarded-proto'];
-  const protocol = forwardedProto ? String(forwardedProto).split(',')[0] : req.protocol;
-  return `${protocol}://${req.get('host')}/r2-object?key=${encodeURIComponent(key)}`;
-}
-
-function uploadToCloudinaryWithFaces(buffer, folder, filename) {
-  return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        resource_type: 'image',
-        folder,
-        public_id: filename,
-        overwrite: true,
-        faces: true,
-      },
-      (error, result) => {
-        if (error) reject(error);
-        else resolve(result);
-      }
-    );
-
-    stream.end(buffer);
-  });
-}
-
-async function deleteFromCloudinary(publicId, resourceType) {
-  try {
-    if (!publicId) return;
-
-    await cloudinary.uploader.destroy(publicId, {
-      resource_type: resourceType,
-    });
-
-    console.log('Borrado Cloudinary:', publicId);
-    console.log('Tipo recurso:', resourceType);
-  } catch (error) {
-    console.log('Error borrando Cloudinary:', error);
-  }
-}
 
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'ReelSwapAI backend v10 - R2 storage + transición Cloudinary',
+    message: 'ReelSwapAI backend - DeepSwap + R2 temporal + fallback web',
   });
 });
 
@@ -499,43 +453,11 @@ app.post(
 
       console.log('DeepSwap VIDEO resultado final:', resultUrl);
 
-      const resultResponse = await fetch(resultUrl);
-
-      if (!resultResponse.ok) {
-        const resultErrorText = await resultResponse.text();
-        throw new Error(
-          `No se pudo descargar el vídeo generado por DeepSwap: ${resultErrorText}`
-        );
-      }
-
-      const resultBuffer = Buffer.from(await resultResponse.arrayBuffer());
-
-      const finalUpload = await uploadToR2(resultBuffer, {
-        folder: 'reelswapai/results',
-        filename: `result-video-${Date.now()}-${randomUUID()}`,
-        contentType: resultResponse.headers.get('content-type') || 'video/mp4',
-        fallbackExtension: 'mp4',
-      });
-
-      console.log('Resultado VIDEO guardado en R2:', finalUpload.key);
-
-      if (faceUpload?.key) {
-        await deleteFromR2(faceUpload.key);
-      }
-
-      if (targetUpload?.key) {
-        await deleteFromR2(targetUpload.key);
-      }
-
-      faceUpload = null;
-      targetUpload = null;
-
+      // El resultado final permanece en la URL temporal del proveedor.
+      // R2 se usa solo para entradas temporales y se limpia al terminar.
       return res.json({
         success: true,
-        provider: 'deepswap',
-        videoUrl: buildBackendObjectUrl(req, finalUpload.key),
-        storageKey: finalUpload.key,
-        storageProvider: 'r2',
+        videoUrl: resultUrl,
       });
     } catch (error) {
       console.log('ERROR BACKEND VIDEO FULL:');
@@ -715,43 +637,11 @@ app.post(
 
       console.log('DeepSwap IMAGE resultado final:', resultUrl);
 
-      const resultResponse = await fetch(resultUrl);
-
-      if (!resultResponse.ok) {
-        const resultErrorText = await resultResponse.text();
-        throw new Error(
-          `No se pudo descargar la imagen generada por DeepSwap: ${resultErrorText}`
-        );
-      }
-
-      const resultBuffer = Buffer.from(await resultResponse.arrayBuffer());
-
-      const finalUpload = await uploadToR2(resultBuffer, {
-        folder: 'reelswapai/results',
-        filename: `result-image-${Date.now()}-${randomUUID()}`,
-        contentType: resultResponse.headers.get('content-type') || 'image/jpeg',
-        fallbackExtension: 'jpg',
-      });
-
-      console.log('Resultado FOTO guardado en R2:', finalUpload.key);
-
-      if (faceUpload?.key) {
-        await deleteFromR2(faceUpload.key);
-      }
-
-      if (targetUpload?.key) {
-        await deleteFromR2(targetUpload.key);
-      }
-
-      faceUpload = null;
-      targetUpload = null;
-
+      // El resultado final permanece en la URL temporal del proveedor.
+      // R2 se usa solo para entradas temporales y se limpia al terminar.
       return res.json({
         success: true,
-        provider: 'deepswap',
-        imageUrl: buildBackendObjectUrl(req, finalUpload.key),
-        storageKey: finalUpload.key,
-        storageProvider: 'r2',
+        imageUrl: resultUrl,
       });
     } catch (error) {
       console.log('ERROR BACKEND IMAGE FULL:');
@@ -777,79 +667,6 @@ app.post(
   }
 );
 
-app.post('/delete-r2-result', async (req, res) => {
-  try {
-    const { storageKey } = req.body;
-
-    if (!storageKey) {
-      return res.status(400).json({
-        success: false,
-        error: 'Falta storageKey',
-      });
-    }
-
-    await deleteFromR2(storageKey);
-
-    return res.json({ success: true });
-  } catch (error) {
-    console.log('Error endpoint delete-r2-result:', error);
-
-    return res.status(500).json({
-      success: false,
-      error: error?.message || error,
-    });
-  }
-});
-
-// Compatibilidad temporal con versiones antiguas de la app.
-app.post('/delete-cloudinary-result', async (req, res) => {
-  try {
-    const { publicId, resourceType } = req.body;
-    if (!publicId || !resourceType) {
-      return res.status(400).json({ success: false, error: 'Faltan publicId o resourceType' });
-    }
-    await deleteFromCloudinary(publicId, resourceType);
-    return res.json({ success: true });
-  } catch (error) {
-    return res.status(500).json({ success: false, error: error?.message || error });
-  }
-});
-
-// URL estable de lectura para la app y el historial. El bucket puede seguir privado.
-app.get('/r2-object', async (req, res) => {
-  try {
-    const key = String(req.query.key || '');
-    if (!key) {
-      return res.status(400).json({ success: false, error: 'Falta key' });
-    }
-
-    const range = req.headers.range;
-    const object = await r2.send(
-      new GetObjectCommand({
-        Bucket: R2_BUCKET,
-        Key: key,
-        ...(range ? { Range: range } : {}),
-      })
-    );
-
-    if (object.ContentType) res.setHeader('Content-Type', object.ContentType);
-    res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Cache-Control', 'private, max-age=0, no-store');
-
-    if (object.ContentRange) {
-      res.status(206);
-      res.setHeader('Content-Range', object.ContentRange);
-    }
-    if (object.ContentLength !== undefined) {
-      res.setHeader('Content-Length', String(object.ContentLength));
-    }
-
-    object.Body.pipe(res);
-  } catch (error) {
-    console.log('Error leyendo objeto R2:', error);
-    return res.status(404).json({ success: false, error: 'Archivo no encontrado' });
-  }
-});
 
 const PORT = process.env.PORT || 3000;
 app.delete('/delete-account', requireFirebaseAuth, async (req, res) => {
@@ -939,314 +756,6 @@ app.post(
   }
 );
 
-app.post(
-  '/deepswap-video-test',
-  upload.fields([
-    { name: 'face', maxCount: 1 },
-    { name: 'target', maxCount: 1 },
-  ]),
-  async (req, res) => {
-    let faceUpload = null;
-    let targetUpload = null;
-
-    try {
-      console.log('Nueva petición DeepSwap VIDEO TEST');
-
-      const faceFile = req.files?.face?.[0];
-      const targetFile = req.files?.target?.[0];
-
-      if (!faceFile || !targetFile) {
-        return res.status(400).json({
-          success: false,
-          error: 'Faltan face o target',
-        });
-      }
-
-      // 1. Subir cara y vídeo temporalmente a R2
-      faceUpload = await uploadToR2(faceFile.buffer, {
-        folder: 'reelswapai/deepswap/video-faces',
-        filename: `face-${Date.now()}-${randomUUID()}`,
-        contentType: faceFile.mimetype || 'image/jpeg',
-        fallbackExtension: 'jpg',
-      });
-
-      targetUpload = await uploadToR2(targetFile.buffer, {
-        folder: 'reelswapai/deepswap/video-targets',
-        filename: `video-${Date.now()}-${randomUUID()}`,
-        contentType: targetFile.mimetype || 'video/mp4',
-        fallbackExtension: 'mp4',
-      });
-
-      console.log('Face R2:', faceUpload.key);
-      console.log('Video R2:', targetUpload.key);
-
-      // 3. Crear material DeepSwap con URL firmada de R2
-      const materialCreate = await createDeepSwapMaterial(
-        targetUpload.signedUrl
-      );
-
-      const materialId =
-        materialCreate?.materialId ||
-        materialCreate?.data?.materialId;
-
-      if (!materialId) {
-        throw new Error(
-          `DeepSwap no devolvió materialId: ${JSON.stringify(materialCreate)}`
-        );
-      }
-
-      console.log('DeepSwap VIDEO materialId:', materialId);
-
-      // 4. Esperar al análisis del vídeo
-      const material = await waitForDeepSwapMaterial(materialId);
-
-      const faces =
-        material?.faces ||
-        material?.data?.faces ||
-        [];
-
-      if (!faces.length) {
-        throw new Error(
-          `DeepSwap no detectó caras en el vídeo: ${JSON.stringify(material)}`
-        );
-      }
-
-      const sourceFaceId = faces[0]?.id;
-
-      if (!sourceFaceId) {
-        throw new Error(
-          `No se encontró sourceFaceId: ${JSON.stringify(faces[0])}`
-        );
-      }
-
-      console.log('DeepSwap VIDEO sourceFaceId:', sourceFaceId);
-
-      // 5. Crear face swap
-      const taskCreate = await createDeepSwapTask({
-        materialId,
-        sourceFaceId,
-        targetFaceUrl: faceUpload.signedUrl,
-        model: 'shapefusion1.0-fs',
-        faceEnhance: true,
-      });
-
-      const taskId =
-        taskCreate?.taskId ||
-        taskCreate?.data?.taskId;
-
-      if (!taskId) {
-        throw new Error(
-          `DeepSwap no devolvió taskId: ${JSON.stringify(taskCreate)}`
-        );
-      }
-
-      console.log('DeepSwap VIDEO taskId:', taskId);
-
-      // 6. Esperar resultado
-      const task = await waitForDeepSwapTask(taskId);
-
-      const resultUrl =
-        task?.videoUrl ||
-        task?.data?.videoUrl;
-
-      if (!resultUrl) {
-        throw new Error(
-          `DeepSwap no devolvió videoUrl: ${JSON.stringify(task)}`
-        );
-      }
-
-      console.log('DeepSwap VIDEO resultado:', resultUrl);
-
-      return res.json({
-        success: true,
-        provider: 'deepswap',
-        materialId,
-        taskId,
-        resultUrl,
-      });
-    } catch (error) {
-      console.error('ERROR DEEPSWAP VIDEO TEST:', error);
-
-      return res.status(500).json({
-        success: false,
-        error: error?.message || String(error),
-      });
-    } finally {
-      try {
-        if (faceUpload?.key) {
-          await deleteFromR2(faceUpload.key);
-        }
-
-        if (targetUpload?.key) {
-          await deleteFromR2(targetUpload.key);
-        }
-      } catch (cleanupError) {
-        console.error(
-          'Error limpiando temporales DeepSwap VIDEO:',
-          cleanupError
-        );
-      }
-    }
-  }
-);
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor funcionando en puerto ${PORT}`);
 });
-app.post(
-  '/deepswap-image-test',
-  upload.fields([
-    { name: 'face', maxCount: 1 },
-    { name: 'target', maxCount: 1 },
-  ]),
-  async (req, res) => {
-    let faceUpload = null;
-    let targetUpload = null;
-
-    try {
-      console.log('Nueva petición DeepSwap FOTO TEST');
-
-      const faceFile = req.files?.face?.[0];
-      const targetFile = req.files?.target?.[0];
-
-      if (!faceFile || !targetFile) {
-        return res.status(400).json({
-          success: false,
-          error: 'Faltan face o target',
-        });
-      }
-
-      faceUpload = await uploadToR2(faceFile.buffer, {
-        folder: 'reelswapai/deepswap/faces',
-        filename: `face-${Date.now()}-${randomUUID()}`,
-        contentType: faceFile.mimetype || 'image/jpeg',
-        fallbackExtension: 'jpg',
-      });
-
-      targetUpload = await uploadToR2(targetFile.buffer, {
-        folder: 'reelswapai/deepswap/targets',
-        filename: `target-${Date.now()}-${randomUUID()}`,
-        contentType: targetFile.mimetype || 'image/jpeg',
-        fallbackExtension: 'jpg',
-      });
-
-      console.log('Face R2:', faceUpload.key);
-      console.log('Target R2:', targetUpload.key);
-
-      // 3. Crear material en DeepSwap con URL firmada de R2
-      const materialCreate = await createDeepSwapMaterial(
-        targetUpload.signedUrl
-      );
-
-      const materialId =
-        materialCreate?.materialId ||
-        materialCreate?.data?.materialId;
-
-      if (!materialId) {
-        throw new Error(
-          `DeepSwap no devolvió materialId: ${JSON.stringify(materialCreate)}`
-        );
-      }
-
-      console.log('DeepSwap materialId:', materialId);
-
-      // 4. Esperar preprocessing
-      const material = await waitForDeepSwapMaterial(materialId);
-
-      const faces =
-        material?.faces ||
-        material?.data?.faces ||
-        [];
-
-      if (!faces.length) {
-        throw new Error(
-          `DeepSwap no detectó caras en el target: ${JSON.stringify(material)}`
-        );
-      }
-
-      // Para esta primera prueba cogemos la primera cara detectada
-      const sourceFaceId =
-        faces[0]?.faceId ||
-        faces[0]?.sourceFaceId ||
-        faces[0]?.id;
-
-      if (sourceFaceId === undefined || sourceFaceId === null) {
-        throw new Error(
-          `No se encontró sourceFaceId: ${JSON.stringify(faces[0])}`
-        );
-      }
-
-      console.log('DeepSwap sourceFaceId:', sourceFaceId);
-
-      // 5. Crear tarea de face swap
-      const taskCreate = await createDeepSwapTask({
-        materialId,
-        sourceFaceId,
-        targetFaceUrl: faceUpload.signedUrl,
-        model: 'shapefusion1.0-fs',
-        faceEnhance: true,
-      });
-
-      const taskId =
-        taskCreate?.taskId ||
-        taskCreate?.data?.taskId;
-
-      if (!taskId) {
-        throw new Error(
-          `DeepSwap no devolvió taskId: ${JSON.stringify(taskCreate)}`
-        );
-      }
-
-      console.log('DeepSwap taskId:', taskId);
-
-      // 6. Esperar resultado
-      const task = await waitForDeepSwapTask(taskId);
-
-     const resultUrl =
-  task?.imageUrl ||
-  task?.videoUrl ||
-  task?.resultUrl ||
-  task?.data?.imageUrl ||
-  task?.data?.videoUrl ||
-  task?.data?.resultUrl ||
-  (Array.isArray(task?.imageUrls) ? task.imageUrls[0] : null);
-
-if (!resultUrl) {
-  throw new Error(
-    `DeepSwap no devolvió URL final: ${JSON.stringify(task)}`
-  );
-}
-
-      console.log('DeepSwap resultado:', resultUrl);
-
-      return res.json({
-        success: true,
-        provider: 'deepswap',
-        materialId,
-        taskId,
-        resultUrl,
-      });
-    } catch (error) {
-      console.error('ERROR DEEPSWAP IMAGE TEST:', error);
-
-      return res.status(500).json({
-        success: false,
-        error: error?.message || String(error),
-      });
-    } finally {
-      try {
-        if (faceUpload?.key) {
-          await deleteFromR2(faceUpload.key);
-        }
-
-        if (targetUpload?.key) {
-          await deleteFromR2(targetUpload.key);
-        }
-      } catch (cleanupError) {
-        console.error(
-          'Error limpiando temporales DeepSwap:',
-          cleanupError
-        );
-      }
-    }
-  }
-);
