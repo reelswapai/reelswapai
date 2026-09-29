@@ -519,8 +519,13 @@ app.post(
 
       console.log('Resultado VIDEO guardado en R2:', finalUpload.key);
 
-      await deleteFromR2(faceUpload.key);
-      await deleteFromR2(targetUpload.key);
+      if (faceUpload?.key) {
+        await deleteFromR2(faceUpload.key);
+      }
+
+      if (targetUpload?.key) {
+        await deleteFromR2(targetUpload.key);
+      }
 
       faceUpload = null;
       targetUpload = null;
@@ -730,8 +735,13 @@ app.post(
 
       console.log('Resultado FOTO guardado en R2:', finalUpload.key);
 
-      await deleteFromR2(faceUpload.key);
-      await deleteFromR2(targetUpload.key);
+      if (faceUpload?.key) {
+        await deleteFromR2(faceUpload.key);
+      }
+
+      if (targetUpload?.key) {
+        await deleteFromR2(targetUpload.key);
+      }
 
       faceUpload = null;
       targetUpload = null;
