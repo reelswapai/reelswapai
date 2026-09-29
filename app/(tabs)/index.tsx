@@ -5,7 +5,6 @@ import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { VideoView, useVideoPlayer } from 'expo-video';
-import * as VideoThumbnails from 'expo-video-thumbnails';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import {
   addDoc,
@@ -53,10 +52,8 @@ type ResultType = 'image' | 'video';
 
 type DetectedFace = {
   index: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  id: string;
+  url: string | null;
 };
 
 
@@ -82,14 +79,11 @@ export default function HomeScreen() {
 
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [resultType, setResultType] = useState<ResultType | null>(null);
+  const [resultVideoLocalUri, setResultVideoLocalUri] = useState<string | null>(null);
 
   const [detectedFaces, setDetectedFaces] = useState<DetectedFace[]>([]);
   const [selectedFaceIndex, setSelectedFaceIndex] = useState<number | null>(null);
-  const [previewUri, setPreviewUri] = useState<string | null>(null);
-  const [previewWidth, setPreviewWidth] = useState(0);
-  const [previewHeight, setPreviewHeight] = useState(0);
-  const [previewOriginalWidth, setPreviewOriginalWidth] = useState(0);
-  const [previewOriginalHeight, setPreviewOriginalHeight] = useState(0);
+  const [detectedMaterialId, setDetectedMaterialId] = useState<string | null>(null);
   const [detectingFaces, setDetectingFaces] = useState(false);
   const [tokens, setTokens] = useState(0);
   const [generating, setGenerating] = useState(false);
@@ -102,9 +96,7 @@ export default function HomeScreen() {
   const [packages, setPackages] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [cloudinaryPublicId, setCloudinaryPublicId] = useState<string | null>(null);
-  const [cloudinaryResourceType, setCloudinaryResourceType] =
-    useState<'image' | 'video' | null>(null);
+  const [storageKey, setStorageKey] = useState<string | null>(null);
 
   const currentCost =
   mode === 'image'
@@ -113,10 +105,16 @@ export default function HomeScreen() {
 
   const hasEnoughTokens = tokens >= currentCost;
 
+  const faceSelectionReady =
+    !!detectedMaterialId &&
+    detectedFaces.length > 0 &&
+    selectedFaceIndex !== null;
+
   const generationRequirementsReady =
     !!user &&
     !!faceImage &&
-    !!targetFile;
+    !!targetFile &&
+    faceSelectionReady;
 
   const canGenerate =
     generationRequirementsReady &&
@@ -136,9 +134,13 @@ export default function HomeScreen() {
       ? 'Selecciona tu rostro'
       : !targetFile
         ? 'Selecciona foto o vídeo destino'
-        : !hasEnoughTokens
-          ? 'Compra tokens para generar'
-          : '';
+        : detectingFaces
+          ? 'Detectando caras...'
+          : !faceSelectionReady
+            ? 'Selecciona una cara del destino'
+            : !hasEnoughTokens
+              ? 'Compra tokens para generar'
+              : '';
 
   const previewPlayer = useVideoPlayer(
     targetType === 'video' && targetFile ? targetFile : null,
@@ -148,11 +150,60 @@ export default function HomeScreen() {
   );
 
   const resultPlayer = useVideoPlayer(
-    resultType === 'video' && resultUrl ? resultUrl : null,
+    resultType === 'video' && resultVideoLocalUri ? resultVideoLocalUri : null,
     (player) => {
       player.loop = true;
     }
   );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function prepareResultVideoPreview() {
+      if (resultType !== 'video' || !resultUrl) {
+        setResultVideoLocalUri(null);
+        return;
+      }
+
+      try {
+        const baseDirectory =
+          FileSystem.cacheDirectory || FileSystem.documentDirectory;
+
+        if (!baseDirectory) {
+          console.log('No hay directorio local para preview; usando URL remota.');
+          resultPlayer.replace(resultUrl);
+          return;
+        }
+
+        const localUri =
+          `${baseDirectory}reelswap-preview-${Date.now()}.mp4`;
+
+        console.log('Descargando vídeo para preview local...');
+
+        const download =
+          await FileSystem.downloadAsync(resultUrl, localUri);
+
+        if (cancelled) return;
+
+        console.log('Preview local preparado:', download.uri);
+
+        setResultVideoLocalUri(download.uri);
+        resultPlayer.replace(download.uri);
+      } catch (error) {
+        console.log('Error preparando preview local:', error);
+
+        if (!cancelled) {
+          resultPlayer.replace(resultUrl);
+        }
+      }
+    }
+
+    prepareResultVideoPreview();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resultUrl, resultType]);
 
   const historyPreviewPlayer = useVideoPlayer(
     previewType === 'video' && previewUrl ? previewUrl : null,
@@ -172,19 +223,15 @@ export default function HomeScreen() {
     setResultReady(false);
     setResultUrl(null);
     setResultType(null);
+    setResultVideoLocalUri(null);
     setShowResult(false);
-    setCloudinaryPublicId(null);
-    setCloudinaryResourceType(null);
+    setStorageKey(null);
   }
 
   function resetFaceDetectionState() {
     setDetectedFaces([]);
     setSelectedFaceIndex(null);
-    setPreviewUri(null);
-    setPreviewWidth(0);
-    setPreviewHeight(0);
-    setPreviewOriginalWidth(0);
-    setPreviewOriginalHeight(0);
+    setDetectedMaterialId(null);
   }
   async function loadPurchaseHistory(userId: string) {
     try {
@@ -301,38 +348,25 @@ export default function HomeScreen() {
     return () => unsubscribe();
   }, []);
 
-  async function setPreviewSource(uri: string) {
-    setPreviewUri(uri);
-
-    try {
-      Image.getSize(
-        uri,
-        (width, height) => {
-          setPreviewOriginalWidth(width);
-          setPreviewOriginalHeight(height);
-        },
-        () => {
-          setPreviewOriginalWidth(0);
-          setPreviewOriginalHeight(0);
-        }
-      );
-    } catch {
-      setPreviewOriginalWidth(0);
-      setPreviewOriginalHeight(0);
-    }
-  }
-
-  async function detectFaces(fileUri: string) {
+  async function detectFaces(
+    fileUri: string,
+    mediaType: ResultType,
+    mimeType?: string | null
+  ) {
     try {
       setDetectingFaces(true);
       setDetectedFaces([]);
       setSelectedFaceIndex(null);
+      setDetectedMaterialId(null);
 
       const formData = new FormData();
+
       formData.append('target', {
         uri: fileUri,
-        name: 'target.jpg',
-        type: 'image/jpeg',
+        name: mediaType === 'video' ? 'target.mp4' : 'target.jpg',
+        type:
+          mimeType ||
+          (mediaType === 'video' ? 'video/mp4' : 'image/jpeg'),
       } as any);
 
       const response = await fetch(`${APP_CONFIG.backendUrl}/detect-faces`, {
@@ -345,26 +379,38 @@ export default function HomeScreen() {
 
       try {
         data = JSON.parse(rawText);
-      } catch (parseError) {
+      } catch {
         console.log('Respuesta detect-faces no es JSON:', rawText);
-        throw new Error(
-          'La API de detección no devolvió JSON. Seguramente el backend aún no tiene /detect-faces.'
-        );
+        throw new Error('La API de detección no devolvió JSON.');
       }
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'No se pudieron detectar caras');
       }
 
-      setDetectedFaces(data.faces || []);
+      const faces: DetectedFace[] = Array.isArray(data.faces)
+        ? data.faces
+        : [];
 
-      if (data.faces?.length > 0) {
+      setDetectedFaces(faces);
+      setDetectedMaterialId(
+        data.materialId ? String(data.materialId) : null
+      );
+
+      if (faces.length > 0) {
         setSelectedFaceIndex(0);
       } else {
-        
+        Alert.alert(
+          'Sin caras',
+          'DeepSwap no ha encontrado ninguna cara clara en el archivo.'
+        );
       }
     } catch (error: any) {
-      console.log('Error detectando caras:', error);
+      console.log('Error detectando caras con DeepSwap:', error);
+      setDetectedFaces([]);
+      setSelectedFaceIndex(null);
+      setDetectedMaterialId(null);
+
       Alert.alert(
         'Error detectando caras',
         error?.message || 'No se pudieron detectar caras.'
@@ -425,8 +471,8 @@ export default function HomeScreen() {
         setTargetType('image');
         setTargetDuration(0);
 
-        await setPreviewSource(asset.uri);
-        await detectFaces(asset.uri);
+        const detectionImage = await convertToJpg(asset.uri);
+        await detectFaces(detectionImage, 'image', 'image/jpeg');
 
         return;
       }
@@ -455,22 +501,11 @@ export default function HomeScreen() {
       setTargetType('video');
       setTargetDuration(durationSeconds || 10);
 
-      try {
-        const { uri: thumbnailUri } = await VideoThumbnails.getThumbnailAsync(
-          asset.uri,
-          { time: 1000 }
-        );
-
-        await setPreviewSource(thumbnailUri);
-        await detectFaces(thumbnailUri);
-      } catch (error) {
-        console.log('Error creando thumbnail:', error);
-        Alert.alert(
-          'Error con el vídeo',
-          'No se pudo generar la previsualización del vídeo.'
-        );
-        return;
-      }
+      await detectFaces(
+        asset.uri,
+        'video',
+        asset.mimeType || 'video/mp4'
+      );
 
     } catch (error) {
       console.log('Error seleccionando destino:', error);
@@ -520,17 +555,11 @@ export default function HomeScreen() {
       setTargetType('video');
       setTargetDuration(10);
 
-      try {
-        const { uri: thumbnailUri } = await VideoThumbnails.getThumbnailAsync(
-          asset.uri,
-          { time: 1000 }
-        );
-
-        await setPreviewSource(thumbnailUri);
-        await detectFaces(thumbnailUri);
-      } catch (error) {
-        console.log('Error creando thumbnail desde Archivos:', error);
-      }
+      await detectFaces(
+        asset.uri,
+        'video',
+        asset.mimeType || 'video/mp4'
+      );
 
       
     } catch (error) {
@@ -714,10 +743,14 @@ if (APP_CONFIG.useRevenueCat) {
       return;
     }
 
-    if (detectedFaces.length > 0 && selectedFaceIndex === null) {
+    if (
+      !detectedMaterialId ||
+      detectedFaces.length === 0 ||
+      selectedFaceIndex === null
+    ) {
       Alert.alert(
         'Selecciona una cara',
-        'Toca primero la cara que quieres cambiar.'
+        'Espera a que DeepSwap detecte las caras y elige la que quieres cambiar.'
       );
       setIsGenerating(false);
       setGenerating(false);
@@ -745,16 +778,27 @@ if (APP_CONFIG.useRevenueCat) {
         type: 'image/jpeg',
       } as any);
 
-      formData.append('target', {
-        uri: finalTarget,
-        name: mode === 'video' ? 'target.mp4' : 'target.jpg',
-        type: mode === 'video' ? 'video/mp4' : 'image/jpeg',
-      } as any);
-
       const apiTargetFaceIndex = selectedFaceIndex ?? 0;
+      const selectedFace = detectedFaces[apiTargetFaceIndex];
+
+      if (!detectedMaterialId || !selectedFace?.id) {
+        formData.append('target', {
+          uri: finalTarget,
+          name: mode === 'video' ? 'target.mp4' : 'target.jpg',
+          type: mode === 'video' ? 'video/mp4' : 'image/jpeg',
+        } as any);
+      }
 
       formData.append('targetFaceIndex', String(apiTargetFaceIndex));
       formData.append('type', mode);
+
+      if (detectedMaterialId) {
+        formData.append('materialId', detectedMaterialId);
+      }
+
+      if (selectedFace?.id) {
+        formData.append('sourceFaceId', String(selectedFace.id));
+      }
 
       setProgress(35);
       setStep('Generando con IA...');
@@ -777,8 +821,7 @@ if (APP_CONFIG.useRevenueCat) {
 
       const data = await response.json();
 
-      setCloudinaryPublicId(data.cloudinaryPublicId || null);
-      setCloudinaryResourceType(mode === 'image' ? 'image' : 'video');
+      setStorageKey(data.storageKey || null);
 
       const finalUrl = data.videoUrl || data.imageUrl || data.resultUrl || data.url;
 
@@ -809,8 +852,8 @@ if (APP_CONFIG.useRevenueCat) {
           selectedFaceIndex: selectedFaceIndex ?? 0,
           apiTargetFaceIndex,
           detectedFacesCount: detectedFaces.length,
-          cloudinaryPublicId: data.cloudinaryPublicId || null,
-          cloudinaryResourceType: mode === 'image' ? 'image' : 'video',
+          storageKey: data.storageKey || null,
+          storageProvider: data.storageProvider || 'r2',
           createdAt: new Date().toISOString(),
         });
 
@@ -950,16 +993,13 @@ async function handleDeleteAccount() {
 
       await Sharing.shareAsync(download.uri);
 
-      if (cloudinaryPublicId && cloudinaryResourceType) {
-        await fetch(`${APP_CONFIG.backendUrl}/delete-cloudinary-result`, {
+      if (storageKey) {
+        await fetch(`${APP_CONFIG.backendUrl}/delete-r2-result`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            publicId: cloudinaryPublicId,
-            resourceType: cloudinaryResourceType,
-          }),
+          body: JSON.stringify({ storageKey }),
         });
       }
 
@@ -971,46 +1011,6 @@ async function handleDeleteAccount() {
     }
   }
 
-  function getFaceOverlayStyle(face: DetectedFace) {
-    if (
-      !previewWidth ||
-      !previewHeight ||
-      !previewOriginalWidth ||
-      !previewOriginalHeight
-    ) {
-      return {
-        left: 0,
-        top: 0,
-        width: 0,
-        height: 0,
-      };
-    }
-
-    const containerRatio = previewWidth / previewHeight;
-    const imageRatio = previewOriginalWidth / previewOriginalHeight;
-
-    let displayedWidth = 0;
-    let displayedHeight = 0;
-    let offsetX = 0;
-    let offsetY = 0;
-
-    if (imageRatio > containerRatio) {
-      displayedWidth = previewWidth;
-      displayedHeight = previewWidth / imageRatio;
-      offsetY = (previewHeight - displayedHeight) / 2;
-    } else {
-      displayedHeight = previewHeight;
-      displayedWidth = previewHeight * imageRatio;
-      offsetX = (previewWidth - displayedWidth) / 2;
-    }
-
-    return {
-      left: offsetX + face.x * displayedWidth,
-      top: offsetY + face.y * displayedHeight,
-      width: face.width * displayedWidth,
-      height: face.height * displayedHeight,
-    };
-  }
 if (!user) {
   return (
     <AuthScreen
@@ -1239,68 +1239,70 @@ if (!user) {
           )}
         </View>
 
-        {previewUri && (
+        {targetFile && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>2.1 Selecciona la cara</Text>
 
             <Text style={styles.cardText}>
-              Toca la cara de la foto o del vídeo que quieres sustituir.
+              DeepSwap detecta las caras del destino. Toca la que quieres sustituir.
             </Text>
 
-            <View
-              style={styles.facePreviewContainer}
-              onLayout={(event) => {
-                setPreviewWidth(event.nativeEvent.layout.width);
-                setPreviewHeight(event.nativeEvent.layout.height);
-              }}
-            >
-              <Image
-                source={{ uri: previewUri }}
-                style={styles.facePreviewImage}
-                resizeMode="contain"
-              />
-
-              {detectedFaces.map((face, index) => {
-                const box = getFaceOverlayStyle(face);
-                const isSelected = selectedFaceIndex === index;
-
-                return (
-                  <TouchableOpacity
-                    key={index}
-                    style={[
-                      styles.faceBox,
-                      {
-                        left: box.left,
-                        top: box.top,
-                        width: box.width,
-                        height: box.height,
-                      },
-                      isSelected ? styles.faceBoxSelected : null,
-                    ]}
-                    onPress={() => setSelectedFaceIndex(index)}
-                  >
-                    <View style={styles.faceBadge}>
-                      <Text style={styles.faceBadgeText}>
-                        Cara {index + 1}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
             {detectingFaces ? (
-              <Text style={[styles.cardText, { marginTop: 12 }]}>
-                Detectando caras...
+              <Text style={styles.faceDetectionStatus}>
+                Detectando caras con DeepSwap...
               </Text>
             ) : detectedFaces.length > 0 ? (
-              <Text style={[styles.cardText, { marginTop: 12 }]}>
-                Cara seleccionada:{' '}
-                {selectedFaceIndex !== null ? selectedFaceIndex + 1 : '-'}
-              </Text>
+              <>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.faceChoices}
+                >
+                  {detectedFaces.map((face, index) => {
+                    const isSelected = selectedFaceIndex === index;
+
+                    return (
+                      <TouchableOpacity
+                        key={face.id || String(index)}
+                        style={[
+                          styles.faceChoice,
+                          isSelected ? styles.faceChoiceSelected : null,
+                        ]}
+                        onPress={() => setSelectedFaceIndex(index)}
+                      >
+                        {face.url ? (
+                          <Image
+                            source={{ uri: face.url }}
+                            style={styles.faceThumb}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={styles.faceThumbFallback}>
+                            <Text style={styles.faceThumbFallbackText}>👤</Text>
+                          </View>
+                        )}
+
+                        <Text
+                          style={[
+                            styles.faceChoiceLabel,
+                            isSelected ? styles.faceChoiceLabelSelected : null,
+                          ]}
+                        >
+                          Cara {index + 1}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                <Text style={styles.faceSelectedText}>
+                  Seleccionada: Cara{' '}
+                  {selectedFaceIndex !== null ? selectedFaceIndex + 1 : '-'}
+                </Text>
+              </>
             ) : (
-              <Text style={[styles.cardText, { marginTop: 12 }]}>
-                No se ha encontrado ninguna cara clara en la vista previa.
+              <Text style={styles.faceDetectionStatus}>
+                No se ha encontrado ninguna cara clara.
               </Text>
             )}
           </View>
@@ -2025,49 +2027,60 @@ noticeText: {
     fontWeight: '900',
     fontSize: 12,
   },
-  facePreviewContainer: {
+  faceDetectionStatus: {
+    color: '#B6B6CA',
+    fontSize: 14,
     marginTop: 16,
-    width: '100%',
-    height: 320,
-    borderRadius: 20,
-    overflow: 'hidden',
-    backgroundColor: '#000',
-    position: 'relative',
+    lineHeight: 20,
   },
-  facePreviewImage: {
-    width: '100%',
-    height: '100%',
+  faceChoices: {
+    gap: 12,
+    paddingTop: 18,
+    paddingBottom: 6,
   },
-  faceBox: {
-    position: 'absolute',
+  faceChoice: {
+    width: 104,
+    backgroundColor: '#1A1A2C',
+    borderRadius: 18,
+    padding: 8,
     borderWidth: 2,
-    borderColor: '#FACC15',
-    backgroundColor: 'rgba(250, 204, 21, 0.12)',
-    borderRadius: 12,
+    borderColor: 'transparent',
+    alignItems: 'center',
   },
-  faceBoxSelected: {
+  faceChoiceSelected: {
     borderColor: '#8B5CF6',
-    backgroundColor: 'rgba(139,92,246,0.22)',
+    backgroundColor: 'rgba(139,92,246,0.18)',
   },
-  faceBadge: {
-    position: 'absolute',
-    top: 4,
-    left: 4,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
+  faceThumb: {
+    width: 84,
+    height: 84,
+    borderRadius: 14,
+    backgroundColor: '#050509',
   },
-  accountGreeting: {
-  color: 'white',
-  fontSize: 20,
-  fontWeight: '900',
-  flex: 1,
-  marginRight: 12,
+  faceThumbFallback: {
+    width: 84,
+    height: 84,
+    borderRadius: 14,
+    backgroundColor: '#050509',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  faceBadgeText: {
-    color: 'white',
-    fontSize: 11,
-    fontWeight: '900',
+  faceThumbFallbackText: {
+    fontSize: 34,
+  },
+  faceChoiceLabel: {
+    color: '#B6B6CA',
+    fontSize: 13,
+    fontWeight: '800',
+    marginTop: 8,
+  },
+  faceChoiceLabelSelected: {
+    color: '#A78BFA',
+  },
+  faceSelectedText: {
+    color: '#A78BFA',
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: 12,
   },
 });
